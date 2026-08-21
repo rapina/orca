@@ -34,6 +34,7 @@ import type { PtyTransportRecoveryState } from './pty-transport-types'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
 import { getConnectionId } from '@/lib/connection-context'
 import { collectUnreadLeafIds } from '@/lib/terminal-unread'
+import { handleTerminalWheelVisit, readPaneViewportScroll } from '@/lib/terminal-wheel-visit'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { hydrateRuntimeEnvironmentSshState } from '@/runtime/runtime-environment-ssh-state'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
@@ -2252,9 +2253,35 @@ function TerminalPane(
       clearTerminalPaneUnread(makePaneKey(tabId, leafId))
       clearWorktreeUnread(worktreeId)
     }
+    // Why: scrolling a terminal back through its output is reading it, so it
+    // dismisses that terminal's unread too. The gesture only counts once the
+    // viewport actually moved (see wheelCountsAsTerminalVisit) - a wheel on a
+    // terminal already parked at the bottom shows nothing new. The comparison
+    // waits a frame because xterm applies the scroll after the event.
+    let disposed = false
+    const onWheel = (event: WheelEvent): void => {
+      handleTerminalWheelVisit(event.target, {
+        isTerminalLeaf: isTerminalLeafId,
+        readViewport: readPaneViewportScroll,
+        schedule: (run) => {
+          requestAnimationFrame(() => {
+            if (!disposed) {
+              run()
+            }
+          })
+        },
+        onVisit: (leafId) => {
+          clearTerminalPaneUnread(makePaneKey(tabId, leafId))
+          clearWorktreeUnread(worktreeId)
+        }
+      })
+    }
     container.addEventListener('pointerdown', onPointerDown, { capture: true })
+    container.addEventListener('wheel', onWheel, { capture: true, passive: true })
     return () => {
+      disposed = true
       container.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      container.removeEventListener('wheel', onWheel, { capture: true })
     }
   }, [tabId, worktreeId, clearTerminalPaneUnread, clearWorktreeUnread])
 
