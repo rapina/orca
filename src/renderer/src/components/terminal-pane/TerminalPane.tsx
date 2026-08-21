@@ -33,6 +33,7 @@ import type { PtyTransport } from './pty-transport'
 import type { PtyTransportRecoveryState } from './pty-transport-types'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
 import { getConnectionId } from '@/lib/connection-context'
+import { collectUnreadLeafIds, noteTerminalPaneFocused } from '@/lib/terminal-unread'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { hydrateRuntimeEnvironmentSshState } from '@/runtime/runtime-environment-ssh-state'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
@@ -42,7 +43,7 @@ import {
   EMPTY_LAYOUT,
   serializeTerminalLayout
 } from './layout-serialization'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-id'
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
 import {
   applyExpandedLayoutTo,
@@ -714,6 +715,21 @@ function TerminalPane(
   const clearWorktreeUnread = useAppStore((store) => store.clearWorktreeUnread)
   const clearTerminalTabUnread = useAppStore((store) => store.clearTerminalTabUnread)
   const clearTerminalPaneUnread = useAppStore((store) => store.clearTerminalPaneUnread)
+  // Why: subscribe to a joined primitive so unread changes in other tabs cannot
+  // repaint this tab's header overlay; the Set is rebuilt only when it changed.
+  const unreadLeafIdsKey = useAppStore((store) =>
+    collectUnreadLeafIds(
+      {
+        unreadTerminalPanes: store.unreadTerminalPanes,
+        unreadAgentCompletionPanes: store.unreadAgentCompletionPanes
+      },
+      tabId
+    ).join(',')
+  )
+  const unreadLeafIds = useMemo(
+    () => new Set(unreadLeafIdsKey.length > 0 ? unreadLeafIdsKey.split(',') : []),
+    [unreadLeafIdsKey]
+  )
   const openSpacePage = useAppStore((store) => store.openSpacePage)
   const refreshWorkspaceSpace = useAppStore((store) => store.refreshWorkspaceSpace)
   const settings = useAppStore((store) => store.settings)
@@ -2215,28 +2231,35 @@ function TerminalPane(
     }
   }, [isActive, worktreeId, keybindings, forceBracketedMultilineTextPaste, tabId])
 
-  // Dismiss the pane's attention indicator on click (ghostty "show until interact"); pointerdown covers the mouse path onData doesn't.
-  // NOT gated on isActive: clicking a visible-but-inactive split pane must clear the worktree dot before focusGroup re-renders it active.
+  // Why: unread is dismissed by visiting the terminal that owns it, so listen for
+  // focus rather than clicks — that covers the mouse, the terminal list, and every
+  // keyboard/programmatic focus path with one rule. Clicking a terminal that
+  // already holds focus is not a visit; typing there clears it (see onTerminalKeyDown).
+  // NOT gated on isActive: focusing a visible-but-inactive split pane counts too.
   useEffect(() => {
     const container = containerRef.current
     if (!container) {
       return
     }
-    const onPointerDown = (event: PointerEvent): void => {
-      clearTerminalTabUnread(tabId)
-      clearWorktreeUnread(worktreeId)
+    const onFocusIn = (event: FocusEvent): void => {
       const paneElement =
         event.target instanceof Element ? event.target.closest('.pane[data-leaf-id]') : null
       const leafId = paneElement?.getAttribute('data-leaf-id')
-      if (leafId) {
-        clearTerminalPaneUnread(makePaneKey(tabId, leafId))
+      if (!leafId || !isTerminalLeafId(leafId)) {
+        return
       }
+      const paneKey = makePaneKey(tabId, leafId)
+      if (!noteTerminalPaneFocused(paneKey)) {
+        return
+      }
+      clearTerminalPaneUnread(paneKey)
+      clearWorktreeUnread(worktreeId)
     }
-    container.addEventListener('pointerdown', onPointerDown, { capture: true })
+    container.addEventListener('focusin', onFocusIn, { capture: true })
     return () => {
-      container.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      container.removeEventListener('focusin', onFocusIn, { capture: true })
     }
-  }, [tabId, worktreeId, clearTerminalTabUnread, clearTerminalPaneUnread, clearWorktreeUnread])
+  }, [tabId, worktreeId, clearTerminalPaneUnread, clearWorktreeUnread])
 
   const applyTerminalPaneAttention = useCallback(() => {
     const manager = managerRef.current
@@ -3209,6 +3232,7 @@ function TerminalPane(
         activePaneId={activePane?.id}
         panes={managedPanes}
         paneTitles={paneTitles}
+        unreadLeafIds={unreadLeafIds}
         paneTitleOverlayRects={paneTitleOverlayRects}
         renamingPaneId={renamingPaneId}
         renameValue={renameValue}

@@ -186,6 +186,37 @@ function isRemoteRuntimePtyId(ptyId: string | null | undefined): boolean {
   return typeof ptyId === 'string' && parseRemoteRuntimePtyId(ptyId) !== null
 }
 
+/**
+ * Unread belongs to a terminal (pane); `unreadTerminalTabs` is the derived cache
+ * its readers (tab bell, dock badge, palettes) use so none of them has to scan
+ * every pane key on each render.
+ */
+function tabHasUnreadPane(
+  tabId: string,
+  unreadTerminalPanes: Record<string, true>,
+  unreadAgentCompletionPanes: Record<string, true>
+): boolean {
+  for (const map of [unreadTerminalPanes, unreadAgentCompletionPanes]) {
+    for (const paneKey of Object.keys(map)) {
+      if (parsePaneKey(paneKey)?.tabId === tabId) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function owningTabUnreadPatch(
+  state: AppState,
+  paneKey: string
+): { unreadTerminalTabs: Record<string, true> } | Record<string, never> {
+  const tabId = parsePaneKey(paneKey)?.tabId
+  if (tabId === undefined || state.unreadTerminalTabs[tabId]) {
+    return {}
+  }
+  return { unreadTerminalTabs: { ...state.unreadTerminalTabs, [tabId]: true as const } }
+}
+
 function isCurrentDirectSshAuthority(state: AppState, authority: DirectSshAuthority): boolean {
   const current = state.sshConnectionStates.get(authority.targetId)
   return Boolean(
@@ -2173,7 +2204,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       if (s.unreadTerminalPanes[paneKey]) {
         return s
       }
-      return { unreadTerminalPanes: { ...s.unreadTerminalPanes, [paneKey]: true as const } }
+      return {
+        unreadTerminalPanes: { ...s.unreadTerminalPanes, [paneKey]: true as const },
+        ...owningTabUnreadPatch(s, paneKey)
+      }
     })
   },
 
@@ -2186,7 +2220,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         unreadAgentCompletionPanes: {
           ...s.unreadAgentCompletionPanes,
           [paneKey]: true as const
-        }
+        },
+        ...owningTabUnreadPatch(s, paneKey)
       }
     })
   },
@@ -2211,9 +2246,24 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const nextUnreadAgentCompletionPanes = { ...s.unreadAgentCompletionPanes }
       delete nextUnreadTerminalPanes[paneKey]
       delete nextUnreadAgentCompletionPanes[paneKey]
+      // Why: the tab flag is derived from its panes. Clearing one terminal must
+      // not dismiss its siblings, so the tab only goes read once its last unread
+      // pane is cleared.
+      const tabId = parsePaneKey(paneKey)?.tabId
+      const tabStillUnread =
+        tabId !== undefined &&
+        tabHasUnreadPane(tabId, nextUnreadTerminalPanes, nextUnreadAgentCompletionPanes)
+      let nextUnreadTerminalTabs = s.unreadTerminalTabs
+      if (tabId !== undefined && !tabStillUnread && s.unreadTerminalTabs[tabId]) {
+        nextUnreadTerminalTabs = { ...s.unreadTerminalTabs }
+        delete nextUnreadTerminalTabs[tabId]
+      }
       return {
         unreadTerminalPanes: nextUnreadTerminalPanes,
-        unreadAgentCompletionPanes: nextUnreadAgentCompletionPanes
+        unreadAgentCompletionPanes: nextUnreadAgentCompletionPanes,
+        ...(nextUnreadTerminalTabs !== s.unreadTerminalTabs
+          ? { unreadTerminalTabs: nextUnreadTerminalTabs }
+          : {})
       }
     })
   },

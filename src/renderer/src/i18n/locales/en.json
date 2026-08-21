@@ -15578,6 +15578,18 @@
           "otherTopLevelItems": "Other top-level items ({{value0}})"
         }
       }
+    },
+    "terminalList": {
+      "title": "Terminals",
+      "status": {
+        "unread": "Unread",
+        "working": "Working",
+        "idle": "Idle"
+      },
+      "empty": "No terminals in this worktree"
+    },
+    "terminalUnread": {
+      "paneBell": "Unread terminal activity"
     }
   },
   "dashboardPopout": {

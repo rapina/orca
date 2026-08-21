@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { X, Minimize2, Pin } from 'lucide-react'
-import { stripLeadingAgentTitleDecoration } from '../../../../shared/agent-title-decoration'
+import { useTabDisplayTitle } from './use-tab-display-title'
 import { useTabAgent } from '@/lib/use-tab-agent'
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
 import { Input } from '@/components/ui/input'
@@ -115,10 +115,6 @@ export default function SortableTab({
   // Why: use hook status + title evidence so the icon reflects the harness running now, not just the launch command.
   const tabAgent = useTabAgent(tab)
 
-  // Why: with a provider icon shown, strip the agent's own leading glyph so the tab doesn't show two icons for one agent.
-  const displayTitle =
-    tab.customTitle ?? (tabAgent ? stripLeadingAgentTitleDecoration(tab.title) : tab.title)
-
   const { attributes, listeners, setNodeRef } = useSortable({
     id: tab.id,
     // Why: carry the resolved agent into the drag overlay so dragged tabs keep the same glyph without another store lookup.
@@ -132,6 +128,9 @@ export default function SortableTab({
   // Why: a live working/needs-input state is newer than a prior-turn unread, so it owns the icon until the turn ends.
   const showUnreadActivity =
     hasUnreadActivity && !isEditing && !isTerminalTabActivityLive(activityStatus)
+  // Why: the label follows the terminal the icon is about — the unread one while
+  // the bell is up, otherwise the one running the live turn.
+  const displayTitle = useTabDisplayTitle(tab, tabAgent, showUnreadActivity)
   const [renameValue, setRenameValue] = useState('')
   const renameFocusFrameRef = useRef<number | null>(null)
   // Why: onBlur fires during Input unmount; mark rename resolved so it can't re-commit and overwrite discarded edits.

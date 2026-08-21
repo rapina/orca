@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { translate } from '@/i18n/i18n'
 import { WORKSPACE_FILE_PATH_MIME, WORKSPACE_FILE_PATHS_MIME } from '@/lib/workspace-file-drag'
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
+import { PaneUnreadBell } from './PaneUnreadBell'
 import type { PtyTransport } from './pty-transport'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
 
@@ -32,6 +33,8 @@ type TerminalPaneHeaderOverlayProps = {
   activePaneId: number | null | undefined
   panes: readonly ManagedPane[]
   paneTitles: Readonly<Record<number, string>>
+  /** Leaf ids of this tab's unread terminals; unread is owned per pane. */
+  unreadLeafIds: ReadonlySet<string>
   paneTitleOverlayRects: Readonly<Record<number, PaneTitleOverlayRect>>
   renamingPaneId: number | null
   renameValue: string
@@ -75,6 +78,7 @@ export default function TerminalPaneHeaderOverlay({
   activePaneId,
   panes,
   paneTitles,
+  unreadLeafIds,
   paneTitleOverlayRects,
   renamingPaneId,
   renameValue,
@@ -123,7 +127,12 @@ export default function TerminalPaneHeaderOverlay({
         const overlayRect = paneTitleOverlayRects[pane.id]
         const isActivePane = activePaneId === pane.id
         const isChromeless = showAlwaysOnHeaders && !title && !isEditing
-        const showHeader = overlayRect && (showAlwaysOnHeaders || Boolean(title) || isEditing)
+        const isUnread = unreadLeafIds.has(pane.leafId)
+        // Why: an unread terminal must show its bell even when the pane is
+        // untitled and headers are only revealed on the active tab, else the
+        // per-terminal signal is invisible exactly when it matters.
+        const showHeader =
+          overlayRect && (showAlwaysOnHeaders || Boolean(title) || isEditing || isUnread)
         if (!showHeader || !overlayRect) {
           return null
         }
@@ -244,6 +253,7 @@ export default function TerminalPaneHeaderOverlay({
                   </button>
                 ) : null}
                 <div className="pane-title-actions ml-auto flex shrink-0 items-center gap-0">
+                  {isUnread ? <PaneUnreadBell leafId={pane.leafId} /> : null}
                   {canContinueAgentSessionInNewSession && isActivePane ? (
                     <Tooltip>
                       <TooltipTrigger asChild>

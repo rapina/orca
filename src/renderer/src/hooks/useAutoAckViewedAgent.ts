@@ -139,7 +139,9 @@ export function acknowledgeViewedAgentAttention(
     // Why: the selected agent is now visible, so clear the Dock-driving worktree unread without a click.
     state.clearWorktreeUnread(args.activeWorktreeId)
   }
-  state.clearTerminalTabUnread(args.activeTabId)
+  // Why: no tab-level ack. Unread belongs to each terminal, so acking the panes
+  // the user is actually looking at must leave that tab's hidden terminals
+  // unread; the tab flag follows from its panes.
   for (const paneKey of paneKeysToClear) {
     state.clearTerminalPaneUnread(paneKey)
   }

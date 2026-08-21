@@ -128,9 +128,10 @@ export function startParkedTerminalByteWatcher(
       const state = useAppStore.getState()
       state.markWorktreeUnread(worktreeId)
       state.markTerminalTabUnread(tabId)
-      if (state.settings?.experimentalTerminalAttention === true) {
-        state.markTerminalPaneUnread(paneKey)
-      }
+      // Why: unread is owned per terminal, so the pane that rang always carries
+      // it. experimentalTerminalAttention now only styles the pane container; it
+      // no longer decides whether the pane's unread exists.
+      state.markTerminalPaneUnread(paneKey)
       // Why: agents emit BEL in the same burst as working→idle, so delay only the OS notification to let the richer completion notification win.
       pendingBellNotification = true
       if (!hasPendingAgentTaskCompleteNotification()) {

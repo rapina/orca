@@ -216,7 +216,9 @@ describe('startParkedTerminalByteWatcher', () => {
 
     expect(mockStoreState.markWorktreeUnread).toHaveBeenCalledWith(WORKTREE_ID)
     expect(mockStoreState.markTerminalTabUnread).toHaveBeenCalledWith(TAB_ID)
-    expect(mockStoreState.markTerminalPaneUnread).not.toHaveBeenCalled()
+    // Why: unread is owned by the terminal that rang, so its pane is marked even
+    // with the experimental attention styling off.
+    expect(mockStoreState.markTerminalPaneUnread).toHaveBeenCalledWith(PANE_KEY)
     expect(dispatchTerminalNotification).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(NOTIFICATION_GRACE_MS)
@@ -229,7 +231,7 @@ describe('startParkedTerminalByteWatcher', () => {
     dispose()
   })
 
-  it('marks the exact pane unread when experimental terminal attention is enabled', async () => {
+  it('marks the exact pane unread with experimental terminal attention enabled too', async () => {
     mockStoreState.settings = {
       ...mockStoreState.settings,
       experimentalTerminalAttention: true

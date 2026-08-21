@@ -206,7 +206,7 @@ describe('computeAutoAckTargets — codex retain race regression', () => {
 })
 
 describe('acknowledgeViewedAgentAttention', () => {
-  it('acks the visible agent and clears unread worktree/tab/pane attention', () => {
+  it('acks the visible agent and clears unread worktree/pane attention', () => {
     const actions = {
       acknowledgeAgents: vi.fn(),
       clearWorktreeUnread: vi.fn(),
@@ -223,8 +223,10 @@ describe('acknowledgeViewedAgentAttention', () => {
 
     expect(actions.acknowledgeAgents).toHaveBeenCalledWith([paneKey])
     expect(actions.clearWorktreeUnread).toHaveBeenCalledWith('wt-1')
-    expect(actions.clearTerminalTabUnread).toHaveBeenCalledWith('tab-1')
     expect(actions.clearTerminalPaneUnread).toHaveBeenCalledWith(paneKey)
+    // Why: unread is owned per terminal, so acking what the user sees must leave
+    // the tab's hidden terminals unread; the tab flag follows from its panes.
+    expect(actions.clearTerminalTabUnread).not.toHaveBeenCalled()
   })
 
   it('does nothing when there are no visible agent targets', () => {
@@ -265,8 +267,8 @@ describe('acknowledgeViewedAgentAttention', () => {
 
     expect(actions.acknowledgeAgents).not.toHaveBeenCalled()
     expect(actions.clearWorktreeUnread).toHaveBeenCalledWith('wt-1')
-    expect(actions.clearTerminalTabUnread).toHaveBeenCalledWith('tab-1')
     expect(actions.clearTerminalPaneUnread).toHaveBeenCalledWith(paneKey)
+    expect(actions.clearTerminalTabUnread).not.toHaveBeenCalled()
   })
 })
 

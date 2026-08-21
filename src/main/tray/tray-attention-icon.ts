@@ -80,3 +80,37 @@ export function composeTrayAttentionIcon(base: NativeImage): NativeImage {
 
   return nativeImage.createFromBitmap(bitmap, { width, height })
 }
+
+/**
+ * A standalone amber badge for the Windows taskbar overlay icon.
+ *
+ * Why not `composeTrayAttentionIcon`: the taskbar overlay is not composited onto
+ * the app glyph by us — Windows draws this image over the taskbar button's own
+ * corner, so it must be the badge alone on a transparent canvas. 16×16 is the
+ * size Windows expects for an overlay at 96 dpi.
+ */
+export function createUnreadTaskbarOverlayIcon(size = 16): NativeImage {
+  const bitmap = Buffer.alloc(size * size * 4)
+  const center = (size - 1) / 2
+  const outerRadius = size / 2 - 0.5
+  const innerRadius = outerRadius - 1.5
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - center
+      const dy = y - center
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist > outerRadius) {
+        continue
+      }
+      // Why: the white ring keeps the badge readable over both a light and a
+      // dark taskbar, the same trick the tray dot uses.
+      const color = dist <= innerRadius ? DOT_RGB : RING_RGB
+      const offset = (y * size + x) * 4
+      bitmap[offset] = color.b
+      bitmap[offset + 1] = color.g
+      bitmap[offset + 2] = color.r
+      bitmap[offset + 3] = 0xff
+    }
+  }
+  return nativeImage.createFromBitmap(bitmap, { width: size, height: size })
+}
