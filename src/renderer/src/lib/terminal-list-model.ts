@@ -1,6 +1,7 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
 import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
+import type { Tab, TabGroup } from '../../../shared/tab-types'
 import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,
@@ -18,6 +19,8 @@ export type TerminalListEntry = {
   paneKey: string | null
   tabId: string
   leafId: string | null
+  /** Position as the user counts it: `<tab>.<terminal>`, both 1-based. */
+  position: string
   name: string
   status: TerminalListStatus
 }
@@ -50,6 +53,48 @@ function agentStatusToListStatus(
     : 'idle'
 }
 
+/**
+ * Terminal tabs in the order the tab strip shows them: groups left to right, each
+ * group in its own canonical tab order.
+ *
+ * Why not the content store's own array: a drag or a split reorders the strip
+ * without touching it, so its index would not match the tab the user counts on
+ * screen — and the row number exists precisely to point back at that tab.
+ */
+export function orderTerminalTabsForStrip(input: {
+  tabs: readonly TerminalTab[]
+  unifiedTabs: readonly Tab[]
+  groups: readonly TabGroup[]
+}): TerminalTab[] {
+  const tabById = new Map(input.tabs.map((tab) => [tab.id, tab]))
+  const unifiedById = new Map(input.unifiedTabs.map((tab) => [tab.id, tab]))
+  const ordered: TerminalTab[] = []
+  const seen = new Set<string>()
+
+  for (const group of input.groups) {
+    for (const unifiedTabId of group.tabOrder) {
+      const unified = unifiedById.get(unifiedTabId)
+      if (!unified || unified.contentType !== 'terminal') {
+        continue
+      }
+      const tab = tabById.get(unified.entityId)
+      if (!tab || seen.has(tab.id)) {
+        continue
+      }
+      seen.add(tab.id)
+      ordered.push(tab)
+    }
+  }
+  // Why: a terminal missing from every group order (mid-move, stale hydration) is
+  // still a terminal. Dropping it here would hide an unread one from the list.
+  for (const tab of input.tabs) {
+    if (!seen.has(tab.id)) {
+      ordered.push(tab)
+    }
+  }
+  return ordered
+}
+
 export type TerminalListInput = PaneUnreadMaps & {
   tabs: readonly TerminalTab[]
   layoutsByTabId: Readonly<Record<string, TerminalLayoutSnapshot | undefined>>
@@ -79,6 +124,7 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
           paneKey: null,
           tabId: tab.id,
           leafId: null,
+          position: `${tabIndex + 1}.1`,
           name: tabTitle,
           status: input.unreadTerminalTabs?.[tab.id] === true ? 'unread' : 'idle'
         },
@@ -102,6 +148,10 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
           paneKey,
           tabId: tab.id,
           leafId,
+          // Why: the list is sorted by status, so the row has to say where the
+          // terminal actually lives — the number is how the user counts it in the
+          // tab strip, not a position in this list.
+          position: `${tabIndex + 1}.${paneIndex + 1}`,
           name: resolveTerminalName(
             {
               layout,

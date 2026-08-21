@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { AgentStatusEntry, AgentStatusState } from '../../../shared/agent-status-types'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../shared/terminal-tab-types'
-import { buildTerminalListEntries, type TerminalListInput } from './terminal-list-model'
+import type { Tab, TabGroup } from '../../../shared/tab-types'
+import {
+  buildTerminalListEntries,
+  orderTerminalTabsForStrip,
+  type TerminalListInput
+} from './terminal-list-model'
 
 const NOW = 1_700_000_000_000
 const LEAF_A = '11111111-1111-4111-8111-111111111111'
@@ -131,6 +136,26 @@ describe('buildTerminalListEntries', () => {
     expect(entries.map((entry) => entry.status)).toEqual(['working', 'idle'])
   })
 
+  // Why: the list is sorted by status, so a row's number is the only thing left
+  // pointing at where the terminal actually lives in the tab strip.
+  it('numbers rows by tab and pane, not by their place in the sorted list', () => {
+    const unread = makePaneKey('tab-2', LEAF_B)
+
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'first'), tab('tab-2', 'second')],
+        layoutsByTabId: {
+          'tab-1': layout([LEAF_A]),
+          'tab-2': layout([LEAF_A, LEAF_B])
+        },
+        unreadTerminalPanes: { [unread]: true }
+      })
+    )
+
+    expect(entries.map((entry) => entry.position)).toEqual(['2.2', '1.1', '2.1'])
+    expect(entries[0]?.status).toBe('unread')
+  })
+
   it('lists a tab with no serialized layout as one terminal', () => {
     const entries = buildTerminalListEntries(
       input({
@@ -140,7 +165,66 @@ describe('buildTerminalListEntries', () => {
     )
 
     expect(entries).toEqual([
-      { paneKey: null, tabId: 'tab-1', leafId: null, name: 'restored', status: 'unread' }
+      {
+        paneKey: null,
+        tabId: 'tab-1',
+        leafId: null,
+        position: '1.1',
+        name: 'restored',
+        status: 'unread'
+      }
     ])
+  })
+})
+
+function unifiedTab(
+  id: string,
+  entityId: string,
+  groupId: string,
+  contentType: Tab['contentType'] = 'terminal'
+): Tab {
+  return {
+    id,
+    entityId,
+    groupId,
+    worktreeId: 'wt-1',
+    contentType,
+    label: entityId,
+    customLabel: null,
+    color: null,
+    sortOrder: 0,
+    createdAt: NOW
+  }
+}
+
+function group(id: string, tabOrder: string[]): TabGroup {
+  return { id, worktreeId: 'wt-1', activeTabId: tabOrder[0] ?? null, tabOrder }
+}
+
+describe('orderTerminalTabsForStrip', () => {
+  it('follows the strip: groups in order, each group in its own tab order', () => {
+    const ordered = orderTerminalTabsForStrip({
+      tabs: [tab('term-a', 'a'), tab('term-b', 'b'), tab('term-c', 'c')],
+      unifiedTabs: [
+        unifiedTab('u1', 'term-b', 'g1'),
+        unifiedTab('u2', 'term-a', 'g1'),
+        unifiedTab('u3', 'term-c', 'g2'),
+        unifiedTab('u4', 'browser-1', 'g1', 'browser')
+      ],
+      groups: [group('g1', ['u1', 'u4', 'u2']), group('g2', ['u3'])]
+    })
+
+    expect(ordered.map((entry) => entry.id)).toEqual(['term-b', 'term-a', 'term-c'])
+  })
+
+  it('keeps a terminal that no group order mentions', () => {
+    const ordered = orderTerminalTabsForStrip({
+      tabs: [tab('term-a', 'a'), tab('term-orphan', 'orphan')],
+      unifiedTabs: [unifiedTab('u1', 'term-a', 'g1')],
+      groups: [group('g1', ['u1'])]
+    })
+
+    // Why: dropping it would hide an unread terminal from the list entirely.
+    expect(ordered.map((entry) => entry.id)).toEqual(['term-a', 'term-orphan'])
   })
 })

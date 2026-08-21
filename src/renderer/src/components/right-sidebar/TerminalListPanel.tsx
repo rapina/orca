@@ -5,6 +5,7 @@ import { translate } from '@/i18n/i18n'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import {
   buildTerminalListEntries,
+  orderTerminalTabsForStrip,
   type TerminalListEntry,
   type TerminalListStatus
 } from '@/lib/terminal-list-model'
@@ -57,11 +58,24 @@ export default function TerminalListPanel(): React.JSX.Element {
       unreadTerminalTabs: s.unreadTerminalTabs
     }))
   )
+  const { unifiedTabs, groups } = useAppStore(
+    useShallow((s) => ({
+      unifiedTabs: activeWorktreeId ? (s.unifiedTabsByWorktree[activeWorktreeId] ?? []) : [],
+      groups: activeWorktreeId ? (s.groupsByWorktree[activeWorktreeId] ?? []) : []
+    }))
+  )
+
+  // Why: row numbers point back at the tab strip, so the tabs have to be counted in
+  // the order the strip draws them rather than the order the content store holds.
+  const orderedTabs = useMemo(
+    () => orderTerminalTabsForStrip({ tabs, unifiedTabs, groups }),
+    [tabs, unifiedTabs, groups]
+  )
 
   const entries = useMemo(
     () =>
       buildTerminalListEntries({
-        tabs,
+        tabs: orderedTabs,
         layoutsByTabId,
         agentStatusByPaneKey,
         unreadTerminalPanes,
@@ -74,7 +88,7 @@ export default function TerminalListPanel(): React.JSX.Element {
     // the same invalidation the tab strip's status resolver takes.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
     [
-      tabs,
+      orderedTabs,
       layoutsByTabId,
       agentStatusByPaneKey,
       agentStatusEpoch,
@@ -110,7 +124,7 @@ function TerminalListRow({ entry }: { entry: TerminalListEntry }): React.JSX.Ele
       data-terminal-status={entry.status}
       data-pane-key={entry.paneKey ?? ''}
       className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      title={`${entry.name} — ${statusLabel(entry.status)}`}
+      title={`${entry.position}  ${entry.name} — ${statusLabel(entry.status)}`}
       onClick={() => {
         activateTabAndFocusPane(entry.tabId, entry.leafId, {
           ...(entry.paneKey ? { ackPaneKeyOnSuccess: entry.paneKey } : {}),
@@ -124,6 +138,9 @@ function TerminalListRow({ entry }: { entry: TerminalListEntry }): React.JSX.Ele
       }}
     >
       <TerminalStatusIcon status={entry.status} />
+      {/* Why: sorting by status detaches a row from its place in the tab strip, so
+          the number is what points back at "tab 3, terminal 1". */}
+      <span className="shrink-0 tabular-nums text-muted-foreground">{entry.position}</span>
       <span className="truncate">{entry.name}</span>
     </button>
   )
