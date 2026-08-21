@@ -261,6 +261,33 @@ describe('TabsSlice', () => {
       expect(store.getState().unreadTerminalTabs['tab-1']).toBe(true)
     })
 
+    // Why: unread claims "this finished and you have not seen it". Once the same
+    // terminal starts working again the claim is stale, and leaving the bell up
+    // sends the user to a terminal that is already busy.
+    it('clears unread when the terminal starts another turn', () => {
+      const paneKey = `tab-1:${LEAF_A}`
+      store.getState().markAgentCompletionPaneUnread(paneKey)
+      expect(store.getState().unreadTerminalTabs['tab-1']).toBe(true)
+
+      store
+        .getState()
+        .setAgentStatus(paneKey, { state: 'working', prompt: 'resumed', agentType: 'codex' })
+
+      expect(store.getState().unreadAgentCompletionPanes[paneKey]).toBeUndefined()
+      expect(store.getState().unreadTerminalTabs['tab-1']).toBeUndefined()
+    })
+
+    it('keeps unread while the finished turn keeps reporting', () => {
+      const paneKey = `tab-1:${LEAF_A}`
+      store.getState().markTerminalPaneUnread(paneKey)
+
+      store
+        .getState()
+        .setAgentStatus(paneKey, { state: 'done', prompt: 'finished', agentType: 'codex' })
+
+      expect(store.getState().unreadTerminalPanes[paneKey]).toBe(true)
+    })
+
     it('keeps the tab flag until the last unread terminal is cleared', () => {
       store.getState().markTerminalPaneUnread(`tab-1:${LEAF_A}`)
       store.getState().markAgentCompletionPaneUnread(`tab-1:${LEAF_B}`)

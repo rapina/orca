@@ -1921,6 +1921,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         return
       }
       let completionRefreshWorktreeId: string | null = null
+      let resumedTurnPaneKey: string | null = null
       let suppressedInheritedTerminalStatus = false
       const generatedTitleEntry: { current: AgentStatusEntry | null } = { current: null }
       set((s) => {
@@ -2175,6 +2176,12 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         ) {
           completionRefreshWorktreeId = entry.worktreeId ?? findAgentPaneWorktreeId(s, paneKey)
         }
+        // Why: unread means "this turn finished and you have not seen it". A turn
+        // starting again retires that claim — the terminal is no longer waiting on
+        // the user, so its bell must not outlive the pause.
+        if (entry.state === 'working' && existing?.state !== 'working') {
+          resumedTurnPaneKey = paneKey
+        }
         // Why: emit a global tick only when an entry appears, changes state, crosses stale→fresh,
         // or is a same-state `done` update — same-state working pings must not fan out to aggregates.
         const wasFresh =
@@ -2386,6 +2393,12 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         const worktreeId = completionRefreshWorktreeId
         // Why: agents can create a PR via `gh pr create`, bypassing Orca's flow and leaving a stale "no PR" cache entry in place.
         queueMicrotask(() => get().refreshGitHubForWorktreeIfStale(worktreeId))
+      }
+      if (resumedTurnPaneKey) {
+        const paneKeyToClear = resumedTurnPaneKey
+        // Why: after commit, so a batched burst clears against the state the batch
+        // actually wrote rather than the snapshot it started from.
+        runAfterAgentStatusCommit(() => get().clearTerminalPaneUnread(paneKeyToClear))
       }
     },
 

@@ -147,9 +147,11 @@ describe('shutdownWorktreeTerminals (sleep) — agent status hygiene', () => {
     })
     expect(state.unreadTerminalTabs['tab-1']).toBe(true)
     expect(state.unreadTerminalPanes[targetPaneKey]).toBeUndefined()
-    expect(state.unreadTerminalPanes[siblingPaneKey]).toBe(true)
     expect(state.unreadAgentCompletionPanes[targetPaneKey]).toBeUndefined()
-    expect(state.unreadAgentCompletionPanes[siblingPaneKey]).toBe(true)
+    // Why: the sibling was seeded unread and then started a new turn above, and a
+    // turn that starts again retires the unread it left behind.
+    expect(state.unreadTerminalPanes[siblingPaneKey]).toBeUndefined()
+    expect(state.unreadAgentCompletionPanes[siblingPaneKey]).toBeUndefined()
     expect(state.lastTerminalInputAtByPaneKey[targetPaneKey]).toBeUndefined()
     expect(state.lastTerminalInputAtByPaneKey[siblingPaneKey]).toBe(1100)
     expect(state.pendingSetupSplitByTabId['tab-1']).toBeDefined()
