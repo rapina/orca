@@ -174,6 +174,9 @@
   box-shadow: none;
 }
 
+/* Why amber, not the locate blue: this ring marks an unread terminal, so it has to
+   read as the same signal as the tab and pane bells rather than as "here is the
+   pane you jumped to". */
 .pane[data-terminal-attention] .xterm-container::after {
   content: '';
   position: absolute;
@@ -182,8 +185,8 @@
   pointer-events: none;
   border-radius: 2px;
   box-shadow:
-    inset 0 0 0 1.5px color-mix(in srgb, var(--terminal-pane-locate) 64%, transparent),
-    inset 0 0 0 3px color-mix(in srgb, var(--terminal-pane-locate) 18%, transparent);
+    inset 0 0 0 1.5px color-mix(in srgb, var(--terminal-pane-unread) 72%, transparent),
+    inset 0 0 0 3px color-mix(in srgb, var(--terminal-pane-unread) 22%, transparent);
 }
 
 @keyframes pane-focus-rim-flash {

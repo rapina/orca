@@ -223,6 +223,9 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalCustomThemes: [],
     terminalDividerColorLight: '#d4d4d8',
     terminalInactivePaneOpacity: DEFAULT_TERMINAL_INACTIVE_PANE_OPACITY,
+    // Why: on by default — an unread terminal is easiest to find on the terminal
+    // itself; the setting exists because a persistent ring is a matter of taste.
+    terminalUnreadOutline: true,
     terminalActivePaneOpacity: 1,
     terminalPaneOpacityTransitionMs: 140,
     terminalDividerThicknessPx: 3,

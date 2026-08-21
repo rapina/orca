@@ -15589,7 +15589,9 @@
       "empty": "No terminals in this worktree"
     },
     "terminalUnread": {
-      "paneBell": "Unread terminal activity"
+      "paneBell": "Unread terminal activity",
+      "outlineSetting": "Unread Terminal Outline",
+      "outlineSettingDescription": "Ring the terminal itself while it has unread activity. Off leaves the tab and pane bells as the only cue."
     }
   },
   "dashboardPopout": {

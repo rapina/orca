@@ -170,6 +170,10 @@
   --input: #e5e5e5;
   --ring: #a1a1a1;
   --terminal-pane-locate: var(--color-blue-600);
+  /* "This terminal is unread" — the amber every unread surface already uses (tab
+     bell, pane bell, tray dot, taskbar badge). Deliberately not the locate blue:
+     that one says where you just jumped, this one says what is still waiting. */
+  --terminal-pane-unread: var(--color-amber-500);
   --ai-action-accent: var(--color-violet-500);
   /* "An agent is asking you something" — one hue for every surface that shows
      it (sidebar, tabs, dashboard, agent map). Orange, not amber: on the map it
@@ -279,6 +283,7 @@
   --input: rgb(255 255 255 / 0.15);
   --ring: #737373;
   --terminal-pane-locate: var(--color-blue-400);
+  --terminal-pane-unread: var(--color-amber-400);
   --ai-action-accent: var(--color-violet-400);
   --agent-question: var(--color-orange-500);
   --agent-question-text: var(--color-orange-300);

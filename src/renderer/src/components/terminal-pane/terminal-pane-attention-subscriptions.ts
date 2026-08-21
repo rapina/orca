@@ -1,4 +1,5 @@
 import { useAppStore } from '@/store'
+import { paneHasUnreadActivity } from '@/lib/terminal-unread'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 
@@ -9,10 +10,13 @@ type TerminalPaneAttentionState = ReturnType<typeof useAppStore.getState>
 const listenersByTabId = new Map<string, Set<TerminalPaneAttentionListener>>()
 let unsubscribeStore: (() => void) | null = null
 let previousUnreadTerminalPanes: TerminalPaneAttentionState['unreadTerminalPanes'] | null = null
+let previousUnreadCompletionPanes: TerminalPaneAttentionState['unreadAgentCompletionPanes'] | null =
+  null
 let previousAttentionEnabled = false
 
+/** The ring is on unless the user turned it off; a missing setting reads as on. */
 function isTerminalAttentionEnabled(state: TerminalPaneAttentionState): boolean {
-  return state.settings?.experimentalTerminalAttention === true
+  return state.settings?.terminalUnreadOutline !== false
 }
 
 function tabIdFromPaneKey(paneKey: string): string | null {
@@ -69,22 +73,42 @@ function ensureStoreSubscription(): void {
   }
   const initial = useAppStore.getState()
   previousUnreadTerminalPanes = initial.unreadTerminalPanes
+  previousUnreadCompletionPanes = initial.unreadAgentCompletionPanes
   previousAttentionEnabled = isTerminalAttentionEnabled(initial)
   unsubscribeStore = useAppStore.subscribe((state) => {
     const nextUnreadTerminalPanes = state.unreadTerminalPanes
+    // Why: unread has two sources — a bell and an agent turn ending out of view —
+    // so watching only the bell map would leave the ring unpainted for completions.
+    const nextUnreadCompletionPanes = state.unreadAgentCompletionPanes
     const nextAttentionEnabled = isTerminalAttentionEnabled(state)
     const attentionChanged = nextAttentionEnabled !== previousAttentionEnabled
-    const unreadChanged = nextUnreadTerminalPanes !== previousUnreadTerminalPanes
+    const unreadChanged =
+      nextUnreadTerminalPanes !== previousUnreadTerminalPanes ||
+      nextUnreadCompletionPanes !== previousUnreadCompletionPanes
     if (!attentionChanged && !unreadChanged) {
       return
     }
 
-    const changedTabs =
-      unreadChanged && previousUnreadTerminalPanes
-        ? collectChangedTabs(previousUnreadTerminalPanes, nextUnreadTerminalPanes)
-        : new Set<string>()
+    const changedTabs = new Set<string>()
+    if (unreadChanged && previousUnreadTerminalPanes) {
+      for (const tabId of collectChangedTabs(
+        previousUnreadTerminalPanes,
+        nextUnreadTerminalPanes
+      )) {
+        changedTabs.add(tabId)
+      }
+    }
+    if (unreadChanged && previousUnreadCompletionPanes) {
+      for (const tabId of collectChangedTabs(
+        previousUnreadCompletionPanes,
+        nextUnreadCompletionPanes
+      )) {
+        changedTabs.add(tabId)
+      }
+    }
 
     previousUnreadTerminalPanes = nextUnreadTerminalPanes
+    previousUnreadCompletionPanes = nextUnreadCompletionPanes
     previousAttentionEnabled = nextAttentionEnabled
 
     if (attentionChanged) {
@@ -132,10 +156,9 @@ export function subscribeTerminalPaneAttention(
 export function applyTerminalPaneAttentionToManager(manager: PaneManager, tabId: string): void {
   const state = useAppStore.getState()
   const enabled = isTerminalAttentionEnabled(state)
-  const unreadTerminalPanes = state.unreadTerminalPanes
   for (const pane of manager.getPanes()) {
     const paneKey = makePaneKey(tabId, pane.leafId)
-    if (enabled && unreadTerminalPanes[paneKey]) {
+    if (enabled && paneHasUnreadActivity(state, paneKey)) {
       pane.container.setAttribute('data-terminal-attention', '')
     } else {
       pane.container.removeAttribute('data-terminal-attention')

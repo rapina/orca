@@ -30,6 +30,19 @@ export const getTerminalPaneAppearanceSearchEntries = createLocalizedCatalog(() 
       ...translateSearchKeyword('auto.components.settings.terminal.search.781f49d942', 'divider'),
       ...translateSearchKeyword('auto.components.settings.terminal.search.f637a7dee9', 'thickness')
     ]
+  },
+  {
+    title: translate('components.terminalUnread.outlineSetting', 'Unread Terminal Outline'),
+    description: translate(
+      'components.terminalUnread.outlineSettingDescription',
+      'Ring the terminal itself while it has unread activity. Off leaves the tab and pane bells as the only cue.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.terminal.search.846a7a1204', 'pane'),
+      ...translateSearchKeyword('components.terminalUnread.keyword.unread', 'unread'),
+      ...translateSearchKeyword('components.terminalUnread.keyword.outline', 'outline'),
+      ...translateSearchKeyword('components.terminalUnread.keyword.bell', 'bell')
+    ]
   }
 ])
 
