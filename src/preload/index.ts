@@ -4879,7 +4879,19 @@ const api = {
       ptyId?: string
     }): void => {
       ipcRenderer.send('agentStatus:transferPaneAuthority', args)
-    }
+    },
+    auditPaneBindings: (args: {
+      panes: { paneKey: string; ptyId: string }[]
+      statuses: { paneKey: string; sessionId: string; evidence?: string }[]
+    }): Promise<
+      {
+        paneKey: string
+        sessionId: string
+        candidatePaneKey: string
+        candidateHits: number
+        runnerUpHits: number
+      }[]
+    > => ipcRenderer.invoke('agentStatus:auditPaneBindings', args)
   },
 
   speech: {

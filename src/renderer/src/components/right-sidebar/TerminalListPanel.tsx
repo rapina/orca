@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { AgentWorkingSpinner } from '@/components/AgentWorkingSpinner'
 import { translate } from '@/i18n/i18n'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
+import { buildPaneBindingAuditRequest } from '@/lib/terminal-binding-audit'
 import {
   buildTerminalListEntries,
   orderTerminalTabsForStrip,
@@ -10,6 +11,7 @@ import {
   type TerminalListStatus
 } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
+import type { PaneBindingFinding } from '../../../../shared/pane-binding-audit'
 import { EMPTY_TABS, FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
 
 function TerminalStatusIcon({ status }: { status: TerminalListStatus }): React.JSX.Element {
@@ -101,6 +103,50 @@ export default function TerminalListPanel(): React.JSX.Element {
     ]
   )
 
+  const transferAgentPaneAuthority = useAppStore((s) => s.transferAgentPaneAuthority)
+  const [audit, setAudit] = useState<{
+    ran: boolean
+    busy: boolean
+    findings: PaneBindingFinding[]
+  }>({ ran: false, busy: false, findings: [] })
+
+  const runAudit = useCallback(async () => {
+    setAudit((current) => ({ ...current, busy: true }))
+    const request = buildPaneBindingAuditRequest({
+      entries,
+      layoutsByTabId,
+      agentStatusByPaneKey
+    })
+    const findings = (await window.api?.agentStatus?.auditPaneBindings?.(request)) ?? []
+    setAudit({ ran: true, busy: false, findings })
+  }, [entries, layoutsByTabId, agentStatusByPaneKey])
+
+  // Why: rebinding is what the finding is for, so drop it once acted on rather
+  // than leaving a stale warning until the next audit.
+  const applyFinding = useCallback(
+    (finding: PaneBindingFinding) => {
+      transferAgentPaneAuthority({
+        fromPaneKey: finding.paneKey,
+        toPaneKey: finding.candidatePaneKey
+      })
+      setAudit((current) => ({
+        ...current,
+        findings: current.findings.filter((item) => item.paneKey !== finding.paneKey)
+      }))
+    },
+    [transferAgentPaneAuthority]
+  )
+
+  const positionByPaneKey = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const entry of entries) {
+      if (entry.paneKey) {
+        map[entry.paneKey] = entry.position
+      }
+    }
+    return map
+  }, [entries])
+
   if (entries.length === 0) {
     return (
       <div className="px-3 py-2 text-xs text-muted-foreground">
@@ -110,41 +156,138 @@ export default function TerminalListPanel(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1 scrollbar-sleek">
-      {entries.map((entry) => (
-        <TerminalListRow key={entry.paneKey ?? entry.tabId} entry={entry} />
-      ))}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <TerminalListAuditBar
+        busy={audit.busy}
+        ran={audit.ran}
+        findingCount={audit.findings.length}
+        onRun={() => {
+          void runAudit()
+        }}
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1 scrollbar-sleek">
+        {entries.map((entry) => {
+          const finding = entry.paneKey
+            ? audit.findings.find((item) => item.paneKey === entry.paneKey)
+            : undefined
+          return (
+            <TerminalListRow
+              key={entry.paneKey ?? entry.tabId}
+              entry={entry}
+              {...(finding
+                ? {
+                    finding,
+                    candidatePosition: positionByPaneKey[finding.candidatePaneKey] ?? '?',
+                    onApplyFinding: applyFinding
+                  }
+                : {})}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }
 
-function TerminalListRow({ entry }: { entry: TerminalListEntry }): React.JSX.Element {
+/**
+ * The audit control and its last result.
+ *
+ * Why a manual run: reading every terminal's recorded output is a burst of file
+ * reads, and the answer only matters when a status looks wrong to the user.
+ */
+function TerminalListAuditBar({
+  busy,
+  ran,
+  findingCount,
+  onRun
+}: {
+  busy: boolean
+  ran: boolean
+  findingCount: number
+  onRun: () => void
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5">
+      <button
+        type="button"
+        data-testid="terminal-list-audit-run"
+        className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50 disabled:opacity-50"
+        disabled={busy}
+        onClick={onRun}
+      >
+        {busy
+          ? translate('components.terminalList.audit.running', 'Checking…')
+          : translate('components.terminalList.audit.run', 'Check bindings')}
+      </button>
+      {ran && !busy ? (
+        <span className="truncate text-[11px] text-muted-foreground">
+          {findingCount === 0
+            ? translate('components.terminalList.audit.clean', 'All statuses match their terminal')
+            : translate('components.terminalList.audit.found', '{count} look misplaced').replace(
+                '{count}',
+                String(findingCount)
+              )}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function TerminalListRow({
+  entry,
+  finding,
+  candidatePosition,
+  onApplyFinding
+}: {
+  entry: TerminalListEntry
+  finding?: PaneBindingFinding
+  candidatePosition?: string
+  onApplyFinding?: (finding: PaneBindingFinding) => void
+}): React.JSX.Element {
   const clearTerminalPaneUnread = useAppStore((s) => s.clearTerminalPaneUnread)
   return (
-    <button
-      type="button"
-      data-testid="terminal-list-row"
-      data-terminal-status={entry.status}
-      data-pane-key={entry.paneKey ?? ''}
-      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      title={`${entry.position}  ${entry.name} — ${statusLabel(entry.status)}`}
-      onClick={() => {
-        activateTabAndFocusPane(entry.tabId, entry.leafId, {
-          ...(entry.paneKey ? { ackPaneKeyOnSuccess: entry.paneKey } : {}),
-          flashFocusedPane: true
-        })
-        // Why: picking a row is an explicit choice of that terminal, which is what
-        // dismisses unread. Focus alone does not, so the list clears it here.
-        if (entry.paneKey) {
-          clearTerminalPaneUnread(entry.paneKey)
-        }
-      }}
-    >
-      <TerminalStatusIcon status={entry.status} />
-      {/* Why: sorting by status detaches a row from its place in the tab strip, so
+    <div className="flex w-full items-center">
+      <button
+        type="button"
+        data-testid="terminal-list-row"
+        data-terminal-status={entry.status}
+        data-pane-key={entry.paneKey ?? ''}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        title={`${entry.position}  ${entry.name} — ${statusLabel(entry.status)}`}
+        onClick={() => {
+          activateTabAndFocusPane(entry.tabId, entry.leafId, {
+            ...(entry.paneKey ? { ackPaneKeyOnSuccess: entry.paneKey } : {}),
+            flashFocusedPane: true
+          })
+          // Why: picking a row is an explicit choice of that terminal, which is what
+          // dismisses unread. Focus alone does not, so the list clears it here.
+          if (entry.paneKey) {
+            clearTerminalPaneUnread(entry.paneKey)
+          }
+        }}
+      >
+        <TerminalStatusIcon status={entry.status} />
+        {/* Why: sorting by status detaches a row from its place in the tab strip, so
           the number is what points back at "tab 3, terminal 1". */}
-      <span className="shrink-0 tabular-nums text-muted-foreground">{entry.position}</span>
-      <span className="truncate">{entry.name}</span>
-    </button>
+        <span className="shrink-0 tabular-nums text-muted-foreground">{entry.position}</span>
+        <span className="truncate">{entry.name}</span>
+      </button>
+      {finding && onApplyFinding ? (
+        <button
+          type="button"
+          data-testid="terminal-list-rebind"
+          className="mr-2 shrink-0 rounded border border-amber-500/60 px-1.5 py-0.5 text-[11px] text-amber-500 hover:bg-amber-500/10"
+          title={translate(
+            'components.terminalList.audit.rebindHint',
+            'This status looks like it belongs to terminal {position}. Move it there.'
+          ).replace('{position}', candidatePosition ?? '?')}
+          onClick={() => {
+            onApplyFinding(finding)
+          }}
+        >
+          {`⚠ → ${candidatePosition ?? '?'}`}
+        </button>
+      ) : null}
+    </div>
   )
 }
