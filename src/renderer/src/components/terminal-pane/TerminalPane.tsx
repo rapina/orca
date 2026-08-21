@@ -33,7 +33,7 @@ import type { PtyTransport } from './pty-transport'
 import type { PtyTransportRecoveryState } from './pty-transport-types'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
 import { getConnectionId } from '@/lib/connection-context'
-import { collectUnreadLeafIds, noteTerminalPaneFocused } from '@/lib/terminal-unread'
+import { collectUnreadLeafIds } from '@/lib/terminal-unread'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { hydrateRuntimeEnvironmentSshState } from '@/runtime/runtime-environment-ssh-state'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
@@ -2231,33 +2231,30 @@ function TerminalPane(
     }
   }, [isActive, worktreeId, keybindings, forceBracketedMultilineTextPaste, tabId])
 
-  // Why: unread is dismissed by visiting the terminal that owns it, so listen for
-  // focus rather than clicks — that covers the mouse, the terminal list, and every
-  // keyboard/programmatic focus path with one rule. Clicking a terminal that
-  // already holds focus is not a visit; typing there clears it (see onTerminalKeyDown).
-  // NOT gated on isActive: focusing a visible-but-inactive split pane counts too.
+  // Why: only an explicit pick of this terminal dismisses its unread — a click in
+  // the pane, typing in it (see onTerminalKeyDown), or choosing it in the terminal
+  // list. Focus is deliberately not the trigger: switching tabs restores focus to
+  // whichever terminal was last active there, which would silence a terminal the
+  // user navigated past rather than visited.
+  // NOT gated on isActive: clicking a visible-but-inactive split pane counts too.
   useEffect(() => {
     const container = containerRef.current
     if (!container) {
       return
     }
-    const onFocusIn = (event: FocusEvent): void => {
+    const onPointerDown = (event: PointerEvent): void => {
       const paneElement =
         event.target instanceof Element ? event.target.closest('.pane[data-leaf-id]') : null
       const leafId = paneElement?.getAttribute('data-leaf-id')
       if (!leafId || !isTerminalLeafId(leafId)) {
         return
       }
-      const paneKey = makePaneKey(tabId, leafId)
-      if (!noteTerminalPaneFocused(paneKey)) {
-        return
-      }
-      clearTerminalPaneUnread(paneKey)
+      clearTerminalPaneUnread(makePaneKey(tabId, leafId))
       clearWorktreeUnread(worktreeId)
     }
-    container.addEventListener('focusin', onFocusIn, { capture: true })
+    container.addEventListener('pointerdown', onPointerDown, { capture: true })
     return () => {
-      container.removeEventListener('focusin', onFocusIn, { capture: true })
+      container.removeEventListener('pointerdown', onPointerDown, { capture: true })
     }
   }, [tabId, worktreeId, clearTerminalPaneUnread, clearWorktreeUnread])
 

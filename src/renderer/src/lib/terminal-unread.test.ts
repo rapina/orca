@@ -1,11 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import {
   collectUnreadLeafIds,
   collectUnreadPaneKeys,
-  noteTerminalPaneFocused,
-  paneHasUnreadActivity,
-  resetTerminalPaneFocusTrackingForTests
+  paneHasUnreadActivity
 } from './terminal-unread'
 
 const LEAF_A = '11111111-1111-4111-8111-111111111111'
@@ -68,23 +66,5 @@ describe('collectUnreadPaneKeys', () => {
     const state = maps({ bells: [makePaneKey('tab-1', LEAF_A), 'not-a-pane-key'] })
 
     expect(collectUnreadPaneKeys(state)).toEqual([makePaneKey('tab-1', LEAF_A)])
-  })
-})
-
-describe('noteTerminalPaneFocused', () => {
-  beforeEach(() => {
-    resetTerminalPaneFocusTrackingForTests()
-  })
-
-  it('reports a visit only when the focused terminal changes', () => {
-    const first = makePaneKey('tab-1', LEAF_A)
-    const second = makePaneKey('tab-1', LEAF_B)
-
-    expect(noteTerminalPaneFocused(first)).toBe(true)
-    // Why: refocusing the terminal you never left (alt-tab back into Orca) must
-    // not count as visiting it, or an unread would clear without being read.
-    expect(noteTerminalPaneFocused(first)).toBe(false)
-    expect(noteTerminalPaneFocused(second)).toBe(true)
-    expect(noteTerminalPaneFocused(first)).toBe(true)
   })
 })

@@ -44,28 +44,6 @@ export function collectUnreadLeafIds(maps: PaneUnreadMaps, tabId: string): strin
   return [...leafIds].sort()
 }
 
-let lastFocusedPaneKey: string | null = null
-
-/**
- * True when focus just moved to a terminal that was not already the focused one.
- *
- * Why: unread clears by visiting a terminal, and returning to the Orca window
- * refocuses the terminal you left. Without this guard an alt-tab back would
- * silence a terminal the user never looked at. A terminal that already holds
- * focus therefore stays unread until the user types in it.
- */
-export function noteTerminalPaneFocused(paneKey: string): boolean {
-  if (lastFocusedPaneKey === paneKey) {
-    return false
-  }
-  lastFocusedPaneKey = paneKey
-  return true
-}
-
-export function resetTerminalPaneFocusTrackingForTests(): void {
-  lastFocusedPaneKey = null
-}
-
 /** Pane keys of every unread terminal, across all tabs and worktrees. */
 export function collectUnreadPaneKeys(maps: PaneUnreadMaps): string[] {
   const paneKeys = new Set<string>()

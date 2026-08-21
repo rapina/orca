@@ -102,6 +102,7 @@ export default function TerminalListPanel(): React.JSX.Element {
 }
 
 function TerminalListRow({ entry }: { entry: TerminalListEntry }): React.JSX.Element {
+  const clearTerminalPaneUnread = useAppStore((s) => s.clearTerminalPaneUnread)
   return (
     <button
       type="button"
@@ -111,12 +112,15 @@ function TerminalListRow({ entry }: { entry: TerminalListEntry }): React.JSX.Ele
       className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       title={`${entry.name} — ${statusLabel(entry.status)}`}
       onClick={() => {
-        // Why: focusing the pane is what clears its unread, so the list never
-        // dismisses a terminal it did not actually take the user to.
         activateTabAndFocusPane(entry.tabId, entry.leafId, {
           ...(entry.paneKey ? { ackPaneKeyOnSuccess: entry.paneKey } : {}),
           flashFocusedPane: true
         })
+        // Why: picking a row is an explicit choice of that terminal, which is what
+        // dismisses unread. Focus alone does not, so the list clears it here.
+        if (entry.paneKey) {
+          clearTerminalPaneUnread(entry.paneKey)
+        }
       }}
     >
       <TerminalStatusIcon status={entry.status} />
