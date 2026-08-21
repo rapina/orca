@@ -73,6 +73,9 @@ prod-release-scan-*.md
 /tests/tools/benchmarks/results/*.json
 /.bench-fixtures/
 
+# Profile used by run-orca-isolated.bat
+/.orca-profile/
+
 # Temp
 tmp/
 .tmp/
