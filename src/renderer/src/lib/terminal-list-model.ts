@@ -98,6 +98,9 @@ export function orderTerminalTabsForStrip(input: {
 export type TerminalListInput = PaneUnreadMaps & {
   tabs: readonly TerminalTab[]
   layoutsByTabId: Readonly<Record<string, TerminalLayoutSnapshot | undefined>>
+  /** Live pane titles by tab then layout leaf; without them a split's terminals
+   *  would all fall back to the shared tab title. */
+  paneTitlesByTabId: Readonly<Record<string, Readonly<Record<string, string>>>> | undefined
   agentStatusByPaneKey: Record<string, AgentStatusEntry> | undefined
   unreadTerminalTabs: Readonly<Record<string, boolean | undefined>> | undefined
   now: number
@@ -155,6 +158,7 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
           name: resolveTerminalName(
             {
               layout,
+              paneTitlesByLeafId: input.paneTitlesByTabId?.[tab.id],
               agentStatusByPaneKey: input.agentStatusByPaneKey,
               tabTitle
             },

@@ -1768,7 +1768,7 @@ export function connectPanePty(
     // their OSC title stuck on a working spinner. Replace only this fallback
     // title signal with a neutral terminal label so the existing process tracker
     // can still decide whether an agent TUI is truly alive.
-    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle)
+    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle, pane.leafId)
     if (manager.getActivePane()?.id === pane.id) {
       deps.updateTabTitle(deps.tabId, neutralTitle)
     }
@@ -2097,7 +2097,7 @@ export function connectPanePty(
       return
     }
     const neutralTitle = neutralTerminalTitle()
-    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle)
+    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle, pane.leafId)
     if (manager.getActivePane()?.id === pane.id) {
       deps.updateTabTitle(deps.tabId, neutralTitle)
     }
@@ -2820,7 +2820,7 @@ export function connectPanePty(
       return
     }
     manager.setPaneGpuRendering(pane.id, decision.rendererPolicy.gpuEnabled)
-    deps.setRuntimePaneTitle(deps.tabId, pane.id, paneTitle)
+    deps.setRuntimePaneTitle(deps.tabId, pane.id, paneTitle, pane.leafId)
     // Why: a stale-derived cleared title comes from main's unthrottled 3s
     // timer, not agent output. It must update the visible title but never
     // feed completion tracking — observeTitle would classify the cleared

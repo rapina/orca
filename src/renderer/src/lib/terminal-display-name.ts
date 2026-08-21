@@ -7,8 +7,10 @@ import { collectUnreadLeafIds, type PaneUnreadMaps } from './terminal-unread'
 
 export type TerminalNameSources = {
   layout: TerminalLayoutSnapshot | null | undefined
+  /** This tab's live pane titles keyed by layout leaf (store: runtimePaneTitlesByLeafId). */
+  paneTitlesByLeafId?: Readonly<Record<string, string>> | undefined
   agentStatusByPaneKey: Record<string, AgentStatusEntry> | undefined
-  /** Shown when the terminal has neither a user title nor a live agent title. */
+  /** Last resort: the tab's own title, which every pane of the tab would share. */
   tabTitle: string
 }
 
@@ -16,8 +18,11 @@ export type TerminalNameSources = {
  * Display name of one terminal.
  *
  * Why this order: a user-assigned pane title is an explicit choice and wins; the
- * agent's live terminal title is the name the user recognizes in the tab strip;
- * the tab's own title is the last resort for a plain, untitled shell.
+ * pane's own live title names what is actually running in it; the agent's reported
+ * terminal title covers panes whose live title has not been recorded. The tab title
+ * comes last because every pane of a tab shares it — falling back to it too early
+ * made a split's terminals all show the same name, following whichever pane had
+ * focus.
  */
 export function resolveTerminalName(
   sources: TerminalNameSources,
@@ -27,6 +32,10 @@ export function resolveTerminalName(
   const paneTitle = sources.layout?.titlesByLeafId?.[leafId]?.trim()
   if (paneTitle) {
     return paneTitle
+  }
+  const livePaneTitle = sources.paneTitlesByLeafId?.[leafId]?.trim()
+  if (livePaneTitle) {
+    return livePaneTitle
   }
   if (isTerminalLeafId(leafId)) {
     const agentTitle = sources.agentStatusByPaneKey?.[makePaneKey(tabId, leafId)]?.terminalTitle

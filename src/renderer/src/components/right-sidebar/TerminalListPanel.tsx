@@ -44,9 +44,10 @@ export default function TerminalListPanel(): React.JSX.Element {
   const tabs = useAppStore((s) =>
     activeWorktreeId ? (s.tabsByWorktree[activeWorktreeId] ?? EMPTY_TABS) : EMPTY_TABS
   )
-  const { layoutsByTabId, agentStatusByPaneKey, agentStatusEpoch } = useAppStore(
+  const { layoutsByTabId, paneTitlesByTabId, agentStatusByPaneKey, agentStatusEpoch } = useAppStore(
     useShallow((s) => ({
       layoutsByTabId: s.terminalLayoutsByTabId,
+      paneTitlesByTabId: s.runtimePaneTitlesByLeafId,
       agentStatusByPaneKey: s.agentStatusByPaneKey,
       agentStatusEpoch: s.agentStatusEpoch
     }))
@@ -77,6 +78,7 @@ export default function TerminalListPanel(): React.JSX.Element {
       buildTerminalListEntries({
         tabs: orderedTabs,
         layoutsByTabId,
+        paneTitlesByTabId,
         agentStatusByPaneKey,
         unreadTerminalPanes,
         unreadAgentCompletionPanes,
@@ -90,6 +92,7 @@ export default function TerminalListPanel(): React.JSX.Element {
     [
       orderedTabs,
       layoutsByTabId,
+      paneTitlesByTabId,
       agentStatusByPaneKey,
       agentStatusEpoch,
       unreadTerminalPanes,

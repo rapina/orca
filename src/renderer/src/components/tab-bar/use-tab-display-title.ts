@@ -24,6 +24,7 @@ export function useTabDisplayTitle(
     resolveTabStripTerminalName(
       {
         layout: s.terminalLayoutsByTabId?.[tab.id],
+        paneTitlesByLeafId: s.runtimePaneTitlesByLeafId?.[tab.id],
         agentStatusByPaneKey: s.agentStatusByPaneKey,
         tabTitle: tab.title,
         unreadTerminalPanes: s.unreadTerminalPanes,

@@ -550,6 +550,12 @@ export type TerminalSlice = {
   ptyIdsByTabId: Record<string, string[]>
   /** Live pane titles by tabId then paneId; preserves per-pane agent status (unlike the legacy tab title) while TerminalPane is mounted. */
   runtimePaneTitlesByTabId: Record<string, Record<number, string>>
+  /** The same live titles keyed by the durable layout leaf, for surfaces outside a
+   *  mounted TerminalPane. Why both: the numeric pane id is renderer-local and only
+   *  the owning PaneManager can map it, so a global list (terminal list, tab strip)
+   *  has no way back from a leaf to its title without this. Entries are read through
+   *  the live layout, so ones left by a closed pane never surface. */
+  runtimePaneTitlesByLeafId: Record<string, Record<string, string>>
   /** Per-tab unread flags (BEL or agent-complete); ephemeral UI state, not persisted. Cleared when the user activates/interacts with the tab. */
   unreadTerminalTabs: Record<string, true>
   /** Pane-keyed attention marker (narrower than unreadTerminalTabs); clears when the user interacts with the exact pane that raised it. */
@@ -692,7 +698,9 @@ export type TerminalSlice = {
   ) => void
   setGeneratedTabTitlesFromAgentPrompts: (updates: readonly GeneratedTabTitleUpdate[]) => void
   clearTabLaunchAgent: (tabId: string) => void
-  setRuntimePaneTitle: (tabId: string, paneId: number, title: string) => void
+  /** `leafId` also records the title against the durable layout leaf so surfaces
+   *  outside the owning PaneManager can name that terminal. */
+  setRuntimePaneTitle: (tabId: string, paneId: number, title: string, leafId?: string) => void
   clearRuntimePaneTitle: (tabId: string, paneId: number) => void
   /** Mark a tab unread (agent working→idle); skipped when the tab is visible, since a "seen" flag would never clear. */
   markTerminalTabUnread: (tabId: string) => void
@@ -1079,6 +1087,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   activeTabIdByWorktree: {},
   ptyIdsByTabId: {},
   runtimePaneTitlesByTabId: {},
+  runtimePaneTitlesByLeafId: {},
   unreadTerminalTabs: {},
   unreadTerminalPanes: {},
   unreadAgentCompletionPanes: {},
@@ -1702,6 +1711,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       delete nextPendingReconnectPtyIdByTabId[tabId]
       const nextRuntimePaneTitlesByTabId = { ...s.runtimePaneTitlesByTabId }
       delete nextRuntimePaneTitlesByTabId[tabId]
+      const nextRuntimePaneTitlesByLeafId = { ...s.runtimePaneTitlesByLeafId }
+      delete nextRuntimePaneTitlesByLeafId[tabId]
       const nextDirectSshPaneRetryByTabId = { ...s.directSshPaneRetryByTabId }
       delete nextDirectSshPaneRetryByTabId[tabId]
       const nextDirectSshLivePtyBindingByTabId = {
@@ -1814,6 +1825,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         deferredSshSessionIdsByTabId: nextDeferredSshSessionIdsByTabId,
         pendingReconnectPtyIdByTabId: nextPendingReconnectPtyIdByTabId,
         runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
+        runtimePaneTitlesByLeafId: nextRuntimePaneTitlesByLeafId,
         directSshPaneRetryByTabId: nextDirectSshPaneRetryByTabId,
         directSshLivePtyBindingByTabId: nextDirectSshLivePtyBindingByTabId,
         directSshPaneRetryHistoryByTabId: nextDirectSshPaneRetryHistoryByTabId,
@@ -2121,12 +2133,21 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     })
   },
 
-  setRuntimePaneTitle: (tabId, paneId, title) => {
+  setRuntimePaneTitle: (tabId, paneId, title, leafId) => {
     set((s) => {
       const currentByPane = s.runtimePaneTitlesByTabId[tabId] ?? {}
       const prevTitle = currentByPane[paneId]
+      const leafPatch =
+        leafId === undefined || s.runtimePaneTitlesByLeafId[tabId]?.[leafId] === title
+          ? {}
+          : {
+              runtimePaneTitlesByLeafId: {
+                ...s.runtimePaneTitlesByLeafId,
+                [tabId]: { ...s.runtimePaneTitlesByLeafId[tabId], [leafId]: title }
+              }
+            }
       if (prevTitle === title) {
-        return s
+        return Object.keys(leafPatch).length > 0 ? leafPatch : s
       }
       if (prevTitle && isDecorativeAgentTitleFrameChange(prevTitle, title)) {
         return s
@@ -2145,6 +2166,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           ...s.runtimePaneTitlesByTabId,
           [tabId]: { ...currentByPane, [paneId]: title }
         },
+        ...leafPatch,
         ...(shouldBump ? { sortEpoch: s.sortEpoch + 1 } : {})
       }
     })

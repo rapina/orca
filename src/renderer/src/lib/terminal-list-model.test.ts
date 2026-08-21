@@ -67,6 +67,7 @@ function input(overrides: Partial<TerminalListInput>): TerminalListInput {
   return {
     tabs: [],
     layoutsByTabId: {},
+    paneTitlesByTabId: {},
     agentStatusByPaneKey: {},
     unreadTerminalPanes: {},
     unreadAgentCompletionPanes: {},
@@ -110,6 +111,25 @@ describe('buildTerminalListEntries', () => {
     expect(entries.map((entry) => entry.name)).toEqual(['build', 'dialog rewrite', 'tab title'])
     expect(entries.every((entry) => entry.status === 'idle')).toBe(true)
     expect(entries[0]?.paneKey).toBe(named)
+  })
+
+  // Why (regression): falling back to the shared tab title made every terminal in a
+  // split show the same name, and that name followed whichever pane had focus.
+  it('names each pane by its own live title instead of the shared tab title', () => {
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'focused pane title')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A, LEAF_B, LEAF_C]) },
+        paneTitlesByTabId: { 'tab-1': { [LEAF_A]: 'build', [LEAF_B]: 'server' } }
+      })
+    )
+
+    expect(entries.map((entry) => entry.name)).toEqual([
+      'build',
+      'server',
+      // Why: only a pane with no live title of its own is left with the tab's.
+      'focused pane title'
+    ])
   })
 
   it('treats a waiting turn as working and a stale entry as idle', () => {
