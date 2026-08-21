@@ -148,6 +148,7 @@ export function subscribeTerminalPaneAttention(
       unsubscribeStore()
       unsubscribeStore = null
       previousUnreadTerminalPanes = null
+      previousUnreadCompletionPanes = null
       previousAttentionEnabled = false
     }
   }
@@ -171,5 +172,6 @@ export function resetTerminalPaneAttentionSubscriptionsForTests(): void {
   unsubscribeStore = null
   listenersByTabId.clear()
   previousUnreadTerminalPanes = null
+  previousUnreadCompletionPanes = null
   previousAttentionEnabled = false
 }
