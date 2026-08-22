@@ -4,6 +4,7 @@ import { AgentWorkingSpinner } from '@/components/AgentWorkingSpinner'
 import { translate } from '@/i18n/i18n'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import { buildPaneBindingAuditRequest } from '@/lib/terminal-binding-audit'
+import { selectTerminalListTabSources } from '@/lib/terminal-list-tab-sources'
 import {
   buildTerminalListEntries,
   orderTerminalTabsForStrip,
@@ -62,10 +63,7 @@ export default function TerminalListPanel(): React.JSX.Element {
     }))
   )
   const { unifiedTabs, groups } = useAppStore(
-    useShallow((s) => ({
-      unifiedTabs: activeWorktreeId ? (s.unifiedTabsByWorktree[activeWorktreeId] ?? []) : [],
-      groups: activeWorktreeId ? (s.groupsByWorktree[activeWorktreeId] ?? []) : []
-    }))
+    useShallow((s) => selectTerminalListTabSources(s, activeWorktreeId))
   )
 
   // Why: row numbers point back at the tab strip, so the tabs have to be counted in
