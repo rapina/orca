@@ -97,6 +97,9 @@ docs/**
 !docs/readme/
 !docs/readme/**
 !docs/STYLEGUIDE.md
+# This fork keeps worklogs: what a change leaves behind for whoever reworks the area next.
+!docs/worklog/
+!docs/worklog/**
 !docs/ai-vault-process-isolation-plan.md
 !docs/mobile-terminal-shortcut-bar.md
 !docs/reference/
