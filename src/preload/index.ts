@@ -4881,7 +4881,17 @@ const api = {
       ipcRenderer.send('agentStatus:transferPaneAuthority', args)
     },
     readSessionTurn: (args: { transcriptPath: string }): Promise<string | null> =>
-      ipcRenderer.invoke('agentStatus:readSessionTurn', args)
+      ipcRenderer.invoke('agentStatus:readSessionTurn', args),
+    readTerminalContexts: (args: {
+      terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
+    }): Promise<
+      {
+        paneKey: string
+        worktreeName?: string
+        branch?: string
+        pullRequestUrls: string[]
+      }[]
+    > => ipcRenderer.invoke('agentStatus:readTerminalContexts', args)
   },
 
   speech: {

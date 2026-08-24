@@ -28,6 +28,7 @@ import { kimiHookService } from '../kimi/hook-service'
 import { openClaudeHookService } from '../openclaude/hook-service'
 import { registerAgentPaneAuthorityIpcHandlers } from './agent-pane-authority-ipc'
 import { registerAgentSessionTurnIpcHandlers } from './agent-session-turn-ipc'
+import { registerTerminalContextIpcHandlers } from './terminal-context-ipc'
 import { createAgentPaneAuthorityOwnership } from './agent-pane-authority-ownership'
 import {
   enrichAgentStatusIpcPayload,
@@ -104,6 +105,7 @@ export function registerAgentHookHandlers(
     }
   })
   registerAgentSessionTurnIpcHandlers()
+  registerTerminalContextIpcHandlers()
   registerAgentPaneAuthorityIpcHandlers({
     ownsPty: createAgentPaneAuthorityOwnership({
       getPtyIdForPaneKey: dependencies.getPtyIdForPaneKey,

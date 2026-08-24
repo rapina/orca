@@ -39,6 +39,18 @@ export type AgentStatusApi = {
   /** The last thing one session said, read from its own transcript, so a person
    *  can tell which agent a status belongs to before moving it. */
   readSessionTurn: (args: { transcriptPath: string }) => Promise<string | null>
+  /** What each terminal is working on: the folder its agent is in, and the pull
+   *  requests its own output has shown. */
+  readTerminalContexts: (args: {
+    terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
+  }) => Promise<
+    {
+      paneKey: string
+      worktreeName?: string
+      branch?: string
+      pullRequestUrls: string[]
+    }[]
+  >
 }
 
 export type AgentTrustApi = {

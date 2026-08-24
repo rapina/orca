@@ -947,7 +947,8 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       retirePaneAuthority: () => {},
       transferPaneAuthority: () => {},
       // Why: reading a transcript needs the disk, which the web client has no access to.
-      readSessionTurn: async () => null
+      readSessionTurn: async () => null,
+      readTerminalContexts: async () => []
     },
     mobile: {
       listNetworkInterfaces: () => Promise.resolve({ interfaces: [] }),
