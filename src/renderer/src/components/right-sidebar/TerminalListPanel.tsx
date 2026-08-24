@@ -177,7 +177,7 @@ export default function TerminalListPanel(): React.JSX.Element {
 }
 
 /**
- * What the pending move is about to take, in that agent's own words.
+ * Whose notifications are about to be re-pointed, in that agent's own words.
  *
  * Why the agent's own words and not the status text beside it: a pane holds one
  * status, and its prompt and message fields carry over from whatever reported
@@ -185,6 +185,9 @@ export default function TerminalListPanel(): React.JSX.Element {
  * owns them, so the text on the status can belong to a different agent than the
  * one named here - and telling those apart is the whole job of this card. A
  * transcript belongs to one session by construction.
+ *
+ * Nothing moves: the agent stays where it is, and only the terminal its working
+ * icon and unread arrive at changes.
  */
 function MoveSubjectCard({
   move,
@@ -232,7 +235,7 @@ function MoveSubjectCard({
         <span className="truncate text-[11px] font-medium text-amber-600 dark:text-amber-400">
           {translate(
             'components.terminalList.move.title',
-            'Pick the terminal this agent is really in'
+            'Pick the terminal these notifications belong to'
           )}
         </span>
         <button
@@ -245,7 +248,7 @@ function MoveSubjectCard({
         </button>
       </div>
       <div className="text-[11px] text-muted-foreground">
-        {`${move.agentType} · ${translate('components.terminalList.move.shownAt', 'shown at')} ${move.position} · ${move.sessionId.slice(0, 8)}`}
+        {`${move.agentType} · ${translate('components.terminalList.move.shownAt', 'arriving at')} ${move.position} · ${move.sessionId.slice(0, 8)}`}
       </div>
       {/* Why both lines: the prompt is what you asked it and the reply is what you
           watched it say — either one can be what you recognise it by. */}

@@ -2,9 +2,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app, ipcMain } from 'electron'
 import { isValidPaneKey } from '../agent-hooks/server'
-// TEMPORARY: chained here only because agent-hooks.ts sits at its line limit.
-// Remove with src/main/ipc/agent-status-diag.ts.
-import './agent-status-diag'
 
 /**
  * Terminals an agent session was bound to by hand, kept across restarts.

@@ -132,18 +132,11 @@ function appendUnattachedAgents(
     if (listedPaneKeys.has(paneKey)) {
       continue
     }
-    // TEMPORARY: see main/ipc/agent-status-diag.ts.
-    const listStatus = agentStatusToListStatus(entry, input.now)
-    const parsed = parsePaneKey(paneKey)
-    const tabIndex = parsed ? tabIndexById.get(parsed.tabId) : undefined
-    if (typeof window !== 'undefined') {
-      window.api?.agentStatus?.diag?.(
-        `list unlisted ${paneKey} state=${entry.state} list=${listStatus} tabIndex=${tabIndex} updatedAt=${entry.updatedAt} restored=${entry.restoredUnconfirmed === true}`
-      )
-    }
-    if (listStatus !== 'working') {
+    if (agentStatusToListStatus(entry, input.now) !== 'working') {
       continue
     }
+    const parsed = parsePaneKey(paneKey)
+    const tabIndex = parsed ? tabIndexById.get(parsed.tabId) : undefined
     // Why the tab has to be one of ours: a pane key from another workspace's tab
     // belongs to that workspace's list, not this one.
     if (!parsed || tabIndex === undefined) {

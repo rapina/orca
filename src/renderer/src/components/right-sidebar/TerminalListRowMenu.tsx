@@ -23,6 +23,10 @@ export function closeAllContextMenus(): void {
  * deliberate acts. Why right-click and not a click: opening a terminal is what a
  * click means here, and opening it is also what clears its unread — a menu that
  * cost the user the unread they came to act on would be worse than no menu.
+ *
+ * Why the wording is about notifications and not about the agent: nothing moves.
+ * The agent stays where it is; what changes is which terminal its working icon
+ * and its unread arrive at.
  */
 export function TerminalListRowMenu({
   open,
@@ -69,7 +73,7 @@ export function TerminalListRowMenu({
             <CornerUpRight className="size-4" />
             {translate(
               'components.terminalList.menu.moveAgent',
-              'Move this agent to another terminal…'
+              'Connect these notifications to another terminal…'
             )}
           </DropdownMenuItem>
         ) : null}

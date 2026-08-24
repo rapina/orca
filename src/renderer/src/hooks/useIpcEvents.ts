@@ -312,12 +312,6 @@ const MAX_PENDING_MOBILE_STATE_EVENTS = 300
 const WORKTREE_RENAME_PURGE_GRACE_MS = 20_000
 const recentlyRenamedWorktreeIdExpiry = new Map<string, number>()
 
-/** TEMPORARY: see main/ipc/agent-status-diag.ts. */
-function diagDrop(paneKey: string, state: string | undefined, reason: string): 'dropped' {
-  window.api?.agentStatus?.diag?.(`drop ${reason} ${state ?? '?'} ${paneKey}`)
-  return 'dropped'
-}
-
 function isAgentStatusForRecentlyClosedTab(
   store: Pick<
     AppState,
@@ -3231,12 +3225,12 @@ export function useIpcEvents(): void {
     ): AgentStatusApplyResult => {
       const store = options?.batch?.transaction.getState() ?? useAppStore.getState()
       if (!store.workspaceSessionReady) {
-        return diagDrop(data.paneKey, data.state, 'r1')
+        return 'dropped'
       }
       if (
         isAgentStatusForRecentlyClosedTab(store, data.paneKey, data.providerSession?.id, data.state)
       ) {
-        return diagDrop(data.paneKey, data.state, 'r2')
+        return 'dropped'
       }
       // Why the session id: a hand-made binding moves one agent session off the
       // pane key its hook reports. Everything this function derives - the unread
@@ -3261,7 +3255,7 @@ export function useIpcEvents(): void {
         subagents: data.subagents
       })
       if (!payload) {
-        return diagDrop(data.paneKey, data.state, 'r3')
+        return 'dropped'
       }
       let {
         exists,
@@ -3322,7 +3316,7 @@ export function useIpcEvents(): void {
             }
             return 'pending'
           }
-          return diagDrop(data.paneKey, data.state, 'r4')
+          return 'dropped'
         }
         if (options?.retry !== true) {
           // Why: empty paneKeys are dropped in main before IPC fanout. Reaching
@@ -3352,7 +3346,7 @@ export function useIpcEvents(): void {
           : undefined
       // Why: delayed snapshots/queued relay events must not resurrect a status cleared by a newer disconnect on this connection.
       if (transientClearWatermark !== undefined && data.receivedAt <= transientClearWatermark) {
-        return diagDrop(data.paneKey, data.state, 'r5')
+        return 'dropped'
       }
       const canAcceptPendingRemoteOwnership =
         ownershipConnectionId !== undefined &&
@@ -3365,16 +3359,16 @@ export function useIpcEvents(): void {
         ownershipConnectionId !== repoConnectionId &&
         !canAcceptPendingRemoteOwnership
       ) {
-        return diagDrop(data.paneKey, data.state, 'r6')
+        return 'dropped'
       }
       const existingStatus = store.agentStatusByPaneKey[paneKey]
       if (existingStatus && data.receivedAt < existingStatus.updatedAt) {
         // Why: the store rejects out-of-order status rows; keep metadata-only session identity on the same event boundary.
-        return diagDrop(data.paneKey, data.state, 'r7')
+        return 'dropped'
       }
       if (data.providerSessionOnly) {
         if (!data.providerSession || data.agentType !== 'pi') {
-          return diagDrop(data.paneKey, data.state, 'r8')
+          return 'dropped'
         }
         const providerSessionUpdate: AgentStatusBatchUpdate = {
           kind: 'providerSession',
@@ -3435,7 +3429,7 @@ export function useIpcEvents(): void {
         })
       ) {
         // Why: guards against a stale main-process child completion resurrecting terminal status.
-        return diagDrop(data.paneKey, data.state, 'r9')
+        return 'dropped'
       }
       if (
         shouldSuppressCodexAutoApprovalStatus(statusPayload, {
@@ -3448,7 +3442,7 @@ export function useIpcEvents(): void {
         })
       ) {
         // Why: Codex yolo permission hooks are not user-actionable; they must not drive status, titles, badges, or notifications.
-        return diagDrop(data.paneKey, data.state, 'r10')
+        return 'dropped'
       }
       const terminalTitle = resolveAgentStatusTerminalTitle(statusPayload, title)
       const statusWorktreeId = data.worktreeId ?? owningWorktreeId
@@ -3490,7 +3484,7 @@ export function useIpcEvents(): void {
       }
       if (options?.batch) {
         if (!options.batch.transaction.apply(update)) {
-          return diagDrop(data.paneKey, data.state, 'r11')
+          return 'dropped'
         }
         options.batch.notificationEffects.push(applyPostCommitNotification)
         if (

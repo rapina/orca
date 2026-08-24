@@ -97,7 +97,7 @@ export function TerminalListRow({
             isMoveTarget
               ? translate(
                   'components.terminalList.move.targetHint',
-                  'Move the agent here, to terminal {position}'
+                  'Send them here, to terminal {position}'
                 ).replace('{position}', entry.position)
               : `${entry.position}  ${entry.name} — ${statusLabel(entry.status)}`
           }

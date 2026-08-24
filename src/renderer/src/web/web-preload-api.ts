@@ -949,7 +949,6 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       // Why: reading a transcript needs the disk, which the web client has no access to.
       readSessionTurn: async () => null,
       readTerminalContexts: async () => [],
-      diag: () => {},
       bindSessionPane: () => {},
       listSessionPaneBindings: async () => ({})
     },
