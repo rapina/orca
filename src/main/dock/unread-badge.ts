@@ -16,6 +16,32 @@ function mainWindow(): BrowserWindow | null {
   return BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null
 }
 
+const flashFollowedWindowIds = new Set<number>()
+
+/**
+ * Re-apply the taskbar flash whenever the window gains or loses focus.
+ *
+ * Why: flashing is suppressed while the window is focused, so an unread that
+ * arrives while the user is in Orca starts nothing. Without this, the moment they
+ * leave for another app - which is exactly when a flashing taskbar button is the
+ * only thing that can still reach them - the button sits still, because the unread
+ * count has not changed since and nothing else re-applies it.
+ */
+function followFocusForTaskbarFlash(window: BrowserWindow): void {
+  if (flashFollowedWindowIds.has(window.id)) {
+    return
+  }
+  flashFollowedWindowIds.add(window.id)
+  const reapply = (): void => {
+    applyWindowsTaskbarUnread()
+  }
+  window.on('blur', reapply)
+  window.on('focus', reapply)
+  window.once('closed', () => {
+    flashFollowedWindowIds.delete(window.id)
+  })
+}
+
 /**
  * Windows has no dock badge. The taskbar button carries the same signal two ways:
  * an overlay icon (ignored by Windows when the taskbar runs in small-icon mode,
@@ -32,6 +58,7 @@ function applyWindowsTaskbarUnread(): void {
   if (!window) {
     return
   }
+  followFocusForTaskbarFlash(window)
 
   const hasUnread = unreadCount > 0
   try {
