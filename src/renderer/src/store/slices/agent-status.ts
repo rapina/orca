@@ -1553,7 +1553,9 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
       // every key pointing at it must follow. With one it is a single session that
       // reported the wrong pane, and the pane it named still owns whatever else
       // reports there - re-pointing it would drag those along too.
-      const boundSession = sessionId ? bindAgentSessionPane(sessionId, toPaneKey) : false
+      const boundSession = sessionId
+        ? bindAgentSessionPane(sessionId, toPaneKey, fromPaneKey)
+        : false
       const transfer = boundSession
         ? {
             physicalPaneKey: fromPaneKey,

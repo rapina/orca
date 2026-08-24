@@ -4,6 +4,7 @@ import {
   forgetAgentPaneAuthorityAliasesByTabIds,
   resetAgentPaneAuthorityAliasesForTests,
   resolveAgentPaneAuthorityKey,
+  resolveMovedAgentPaneKey,
   transferAgentPaneAuthorityAlias
 } from './agent-pane-authority'
 
@@ -56,5 +57,39 @@ describe('agent session pane bindings', () => {
     forgetAgentPaneAuthorityAliasesByTabIds(['tabC'])
 
     expect(resolveAgentPaneAuthorityKey(PANE_A, 'session-1')).toBe(PANE_A)
+  })
+
+  // Why this exists: a finished turn arrives as a pane-level notification that
+  // never names its session, so without the pane it left being remembered the
+  // status row moves to the right terminal and its unread stays on the wrong one.
+  it('points a pane-only event at the terminal its one moved session went to', () => {
+    bindAgentSessionPane('session-1', PANE_C, PANE_A)
+
+    expect(resolveMovedAgentPaneKey(PANE_A)).toBe(PANE_C)
+    expect(resolveMovedAgentPaneKey(PANE_B)).toBeNull()
+  })
+
+  // Why: with two gone there is nothing in a pane-only event to say which of them
+  // it belongs to, and guessing drops it on a terminal it was never in.
+  it('says nothing when a pane gave up more than one session', () => {
+    bindAgentSessionPane('session-1', PANE_C, PANE_A)
+    bindAgentSessionPane('session-2', PANE_B, PANE_A)
+
+    expect(resolveMovedAgentPaneKey(PANE_A)).toBeNull()
+  })
+
+  it('follows a session that was moved again', () => {
+    bindAgentSessionPane('session-1', PANE_C, PANE_A)
+    bindAgentSessionPane('session-1', PANE_B, PANE_C)
+
+    expect(resolveMovedAgentPaneKey(PANE_A)).toBeNull()
+    expect(resolveMovedAgentPaneKey(PANE_C)).toBe(PANE_B)
+  })
+
+  it('forgets a move whose terminal was purged', () => {
+    bindAgentSessionPane('session-1', PANE_C, PANE_A)
+    forgetAgentPaneAuthorityAliasesByTabIds(['tabC'])
+
+    expect(resolveMovedAgentPaneKey(PANE_A)).toBeNull()
   })
 })

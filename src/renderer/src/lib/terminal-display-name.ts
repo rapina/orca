@@ -1,5 +1,7 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
+import { deriveGeneratedTabTitle } from '../../../shared/agent-tab-title'
+import { stripLeadingAgentTitleDecoration } from '../../../shared/agent-title-decoration'
 import { makePaneKey, isTerminalLeafId, parsePaneKey } from '../../../shared/stable-pane-id'
 import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
 import { isExplicitAgentStatusFresh } from './agent-status'
@@ -15,14 +17,33 @@ export type TerminalNameSources = {
 }
 
 /**
+/**
+ * A window title names *this* terminal only when it says something the tab title
+ * does not.
+ *
+ * Why the comparison: some agents set the window title to the folder they run in
+ * (Codex writes `<spinner> cozy-sandbox`), so every terminal of a worktree answers
+ * with the same words as its tab and the list cannot be read. That is the same
+ * reason the tab title is the last resort rather than an early fallback.
+ */
+function nameFromWindowTitle(title: string | undefined, tabTitle: string): string | null {
+  const stripped = title ? stripLeadingAgentTitleDecoration(title.trim()).trim() : ''
+  if (!stripped) {
+    return null
+  }
+  return stripped === stripLeadingAgentTitleDecoration(tabTitle.trim()).trim() ? null : stripped
+}
+
+/**
  * Display name of one terminal.
  *
  * Why this order: a user-assigned pane title is an explicit choice and wins; the
  * pane's own live title names what is actually running in it; the agent's reported
- * terminal title covers panes whose live title has not been recorded. The tab title
- * comes last because every pane of a tab shares it — falling back to it too early
- * made a split's terminals all show the same name, following whichever pane had
- * focus.
+ * terminal title covers panes whose live title has not been recorded; and what the
+ * agent was asked covers the agents that never name their turn in a window title at
+ * all. The tab title comes last because every pane of a tab shares it — falling
+ * back to it too early made a split's terminals all show the same name, following
+ * whichever pane had focus.
  */
 export function resolveTerminalName(
   sources: TerminalNameSources,
@@ -33,16 +54,22 @@ export function resolveTerminalName(
   if (paneTitle) {
     return paneTitle
   }
-  const livePaneTitle = sources.paneTitlesByLeafId?.[leafId]?.trim()
-  if (livePaneTitle) {
-    return livePaneTitle
+  const fromLiveTitle = nameFromWindowTitle(sources.paneTitlesByLeafId?.[leafId], sources.tabTitle)
+  if (fromLiveTitle) {
+    return fromLiveTitle
   }
-  if (isTerminalLeafId(leafId)) {
-    const agentTitle = sources.agentStatusByPaneKey?.[makePaneKey(tabId, leafId)]?.terminalTitle
-    const trimmed = agentTitle?.trim()
-    if (trimmed) {
-      return trimmed
-    }
+  const status = isTerminalLeafId(leafId)
+    ? sources.agentStatusByPaneKey?.[makePaneKey(tabId, leafId)]
+    : undefined
+  const fromAgentTitle = nameFromWindowTitle(status?.terminalTitle, sources.tabTitle)
+  if (fromAgentTitle) {
+    return fromAgentTitle
+  }
+  // Why the prompt: an agent that only ever writes its folder into the window title
+  // leaves what it was asked as the one thing that tells its terminal from the next.
+  const fromPrompt = status?.prompt ? deriveGeneratedTabTitle(status.prompt) : null
+  if (fromPrompt) {
+    return fromPrompt
   }
   return sources.tabTitle
 }

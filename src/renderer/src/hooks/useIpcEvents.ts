@@ -311,9 +311,10 @@ const recentlyRenamedWorktreeIdExpiry = new Map<string, number>()
 
 function isAgentStatusForRecentlyClosedTab(
   store: Pick<AppState, 'recentlyClosedAgentStatusTabIds' | 'recentlyRetiredAgentStatusPaneKeys'>,
-  paneKey: string
+  paneKey: string,
+  sessionId?: string
 ): boolean {
-  const ownerPaneKey = resolveAgentPaneAuthorityKey(paneKey)
+  const ownerPaneKey = resolveAgentPaneAuthorityKey(paneKey, sessionId)
   if (store.recentlyRetiredAgentStatusPaneKeys?.[ownerPaneKey] === true) {
     return true
   }
@@ -3168,10 +3169,15 @@ export function useIpcEvents(): void {
       if (!store.workspaceSessionReady) {
         return 'dropped'
       }
-      if (isAgentStatusForRecentlyClosedTab(store, data.paneKey)) {
+      if (isAgentStatusForRecentlyClosedTab(store, data.paneKey, data.providerSession?.id)) {
         return 'dropped'
       }
-      const paneKey = resolveAgentPaneAuthorityKey(data.paneKey)
+      // Why the session id: a hand-made binding moves one agent session off the
+      // pane key its hook reports. Everything this function derives - the unread
+      // a finished turn leaves, tab attribution, retirement checks - has to land
+      // on the same pane the status row does, or the row moves and its unread
+      // stays behind on the terminal the agent was never in.
+      const paneKey = resolveAgentPaneAuthorityKey(data.paneKey, data.providerSession?.id)
       const ownerTabId = parsePaneKey(paneKey)?.tabId ?? data.tabId
       const payload = normalizeAgentStatusPayload({
         state: data.state,

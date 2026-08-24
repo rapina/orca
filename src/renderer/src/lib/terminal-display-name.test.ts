@@ -61,6 +61,31 @@ describe('resolveTerminalName', () => {
     expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('agent title')
     expect(resolveTerminalName(sources(), TAB, LEAF_B)).toBe('tab title')
   })
+
+  // Why: Codex writes `<spinner> <folder>` into the window title, so every terminal
+  // of a worktree answers with the same words as its tab and the list is unreadable.
+  // What that agent was asked is the only thing left that tells them apart.
+  it('names a terminal by its turn when the window title only repeats the tab', () => {
+    const codex = entry(LEAF_B, 'working')
+    codex.prompt = 'Please rename the held tool sockets so the axe lines up'
+    const state = {
+      ...sources({ entries: [codex] }),
+      paneTitlesByLeafId: { [LEAF_B]: '⠉ tab title' }
+    }
+
+    expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('Rename the held tool sockets so the axe')
+  })
+
+  // Why: an agent that does name its turn keeps naming it — this must not become a
+  // rule that throws away the better title Claude already writes.
+  it('keeps a window title that says more than the tab', () => {
+    const state = {
+      ...sources({ entries: [entry(LEAF_B, 'working')] }),
+      paneTitlesByLeafId: { [LEAF_B]: '✳ homestead cleanup design clarification' }
+    }
+
+    expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('homestead cleanup design clarification')
+  })
 })
 
 describe('resolveWorkingTerminalName', () => {
