@@ -834,11 +834,14 @@ export function useIpcEvents(): void {
       data: AgentStatusIpcPayload
       replay?: boolean
       retry?: boolean
+      adoptWithoutPane?: boolean
     }
     type AgentStatusApplyOptions = {
       replay?: boolean
       retry?: boolean
       batch?: AgentStatusBatchContext
+      /** Waited out the pending TTL: take the row even though no pane claims it. */
+      adoptWithoutPane?: boolean
     }
     const pendingAgentStatusEvents: PendingAgentStatusEvent[] = []
     const transientClearWatermarkByConnectionId = new Map<string, number>()
@@ -3183,13 +3186,20 @@ export function useIpcEvents(): void {
       isFlushingAgentStatuses = true
       try {
         const now = Date.now()
-        const candidates = pendingAgentStatusEvents
-          .splice(0)
-          .filter((event) => now - event.firstSeenAt <= PENDING_AGENT_STATUS_TTL_MS)
+        // Why the expired ones are applied rather than discarded: waiting this long
+        // means no pane is coming, and an agent that is still running has to be
+        // reachable somewhere. Dropping them silently is what left a live turn with
+        // no sign of it anywhere on screen.
+        const candidates = pendingAgentStatusEvents.splice(0)
         let results: AgentStatusApplyResult[]
         try {
           results = applyAgentStatusBatch(
-            candidates.map((event) => ({ data: event.data, replay: event.replay, retry: true }))
+            candidates.map((event) => ({
+              data: event.data,
+              replay: event.replay,
+              retry: true,
+              adoptWithoutPane: now - event.firstSeenAt > PENDING_AGENT_STATUS_TTL_MS
+            }))
           )
         } catch (err) {
           // Why: the queue was already spliced, so a throwing fold would drop the whole
@@ -3281,6 +3291,21 @@ export function useIpcEvents(): void {
           repoConnectionResolved = fallbackOwnership.repoConnectionResolved
           exists = true
         }
+      }
+      // Why only after the wait: a pane that has not mounted yet and one that is
+      // gone for good look identical here, and buffering is right for the first. An
+      // agent outlives the terminal it was started in whenever a background-job host
+      // owns it, and keeps reporting that pane for as long as it runs — so once the
+      // pending TTL has passed with no pane, the wait is what is wrong, not the row.
+      // The terminal list shows it unattached and offers the move that puts it right.
+      // A finished turn is left out: nothing to act on, keyed to a terminal that is gone.
+      if (
+        !exists &&
+        options?.adoptWithoutPane === true &&
+        owningWorktreeId !== undefined &&
+        data.state !== 'done'
+      ) {
+        exists = true
       }
       if (!exists) {
         // Why: startup snapshot replay can beat tab/layout hydration too.
@@ -3568,8 +3593,8 @@ export function useIpcEvents(): void {
           tabTitlesByTabId: new Map(),
           notificationEffects: []
         }
-        const results = events.map(({ data, replay, retry }) =>
-          applyAgentStatus(data, { batch, replay, retry })
+        const results = events.map(({ data, replay, retry, adoptWithoutPane }) =>
+          applyAgentStatus(data, { batch, replay, retry, adoptWithoutPane })
         )
         if (batch.tabTitlesByTabId.size > 0) {
           transaction.afterCommit(() => {
