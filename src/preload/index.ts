@@ -4882,6 +4882,9 @@ const api = {
     },
     readSessionTurn: (args: { transcriptPath: string }): Promise<string | null> =>
       ipcRenderer.invoke('agentStatus:readSessionTurn', args),
+    diag: (line: string): void => {
+      ipcRenderer.send('agentStatus:diag', line)
+    },
     readTerminalContexts: (args: {
       terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
     }): Promise<
