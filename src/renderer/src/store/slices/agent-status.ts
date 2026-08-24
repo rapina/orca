@@ -1566,6 +1566,13 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
       const boundSession = sessionId
         ? bindAgentSessionPane(sessionId, toPaneKey, fromPaneKey)
         : false
+      if (boundSession && sessionId && typeof window !== 'undefined') {
+        // Why persisted: the agent keeps reporting the pane it was born with for as
+        // long as it runs, which outlasts this Orca run — without this the next start
+        // puts it back on the terminal it was never in and asks for the same
+        // correction again.
+        window.api?.agentStatus?.bindSessionPane?.({ sessionId, paneKey: toPaneKey })
+      }
       const transfer = boundSession
         ? {
             physicalPaneKey: fromPaneKey,

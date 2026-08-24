@@ -41,6 +41,9 @@ export type AgentStatusApi = {
   readSessionTurn: (args: { transcriptPath: string }) => Promise<string | null>
   /** TEMPORARY: see main/ipc/agent-status-diag.ts. */
   diag: (line: string) => void
+  /** Remember which terminal an agent session was bound to, across restarts. */
+  bindSessionPane: (args: { sessionId: string; paneKey: string }) => void
+  listSessionPaneBindings: () => Promise<Record<string, string>>
   /** What each terminal is working on: the folder its agent is in, and the pull
    *  requests its own output has shown. */
   readTerminalContexts: (args: {

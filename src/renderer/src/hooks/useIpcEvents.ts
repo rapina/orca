@@ -156,7 +156,10 @@ import { titleHasAgentName } from '../../../shared/agent-detection'
 import { isDecorativeAgentTitleFrameChange } from '../../../shared/agent-decorative-title-signature'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { resolveTerminalWorktreeRoute } from '@/lib/terminal-worktree-route'
-import { resolveAgentPaneAuthorityKey } from '@/store/slices/agent-pane-authority'
+import {
+  hydrateAgentSessionPaneBindings,
+  resolveAgentPaneAuthorityKey
+} from '@/store/slices/agent-pane-authority'
 import type {
   AgentStatusBatchTransaction,
   AgentStatusBatchUpdate,
@@ -3522,6 +3525,22 @@ export function useIpcEvents(): void {
       return 'applied'
     }
 
+    // Why here and not beside the snapshot pull: a binding made in an earlier run has
+    // to be in hand before pane-keyed rows are routed, and this runs long before the
+    // workspace session is ready enough to ask for them. Putting it in the snapshot
+    // path would delay the snapshot by a turn of the event loop for every start.
+    // Why Promise.resolve wraps it: the api surface is stubbed in places that hand
+    // back a plain value, and a hydration that throws here takes the whole effect
+    // — every IPC subscription below it — down with it.
+    void Promise.resolve(window.api?.agentStatus?.listSessionPaneBindings?.() ?? {})
+      .then((bindings) => {
+        if (bindings && typeof bindings === 'object') {
+          hydrateAgentSessionPaneBindings(bindings as Record<string, string>)
+        }
+      })
+      .catch(() => {
+        // Why swallowed: a lost binding costs one correction, nothing else.
+      })
     let snapshotRequestedForReadyWindow = false
     let snapshotRequestId = 0
     const requestAgentStatusSnapshotIfReady = (): void => {

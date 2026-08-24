@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   bindAgentSessionPane,
+  hydrateAgentSessionPaneBindings,
   forgetAgentPaneAuthorityAliasesByTabIds,
   resetAgentPaneAuthorityAliasesForTests,
   resolveAgentPaneAuthorityKey,
@@ -91,5 +92,27 @@ describe('agent session pane bindings', () => {
     forgetAgentPaneAuthorityAliasesByTabIds(['tabC'])
 
     expect(resolveMovedAgentPaneKey(PANE_A)).toBeNull()
+  })
+
+  // Why this exists: a hook keeps reporting the pane its process was born with for
+  // as long as that agent runs, which outlasts one Orca run. Without carrying the
+  // correction across a restart the agent goes straight back to the terminal it was
+  // never in, and the user is asked to fix the same one again.
+  it('takes bindings remembered from an earlier run', () => {
+    hydrateAgentSessionPaneBindings({
+      'session-1': PANE_C,
+      'session-bad': 'not-a-pane-key'
+    })
+
+    expect(resolveAgentPaneAuthorityKey(PANE_A, 'session-1')).toBe(PANE_C)
+    expect(resolveAgentPaneAuthorityKey(PANE_A, 'session-bad')).toBe(PANE_A)
+  })
+
+  // Why the live one wins: it was made in this run, against terminals that exist now.
+  it('does not overwrite a binding made in this run', () => {
+    bindAgentSessionPane('session-1', PANE_B)
+    hydrateAgentSessionPaneBindings({ 'session-1': PANE_C })
+
+    expect(resolveAgentPaneAuthorityKey(PANE_A, 'session-1')).toBe(PANE_B)
   })
 })

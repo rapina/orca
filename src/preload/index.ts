@@ -4885,6 +4885,11 @@ const api = {
     diag: (line: string): void => {
       ipcRenderer.send('agentStatus:diag', line)
     },
+    bindSessionPane: (args: { sessionId: string; paneKey: string }): void => {
+      ipcRenderer.send('agentStatus:bindSessionPane', args)
+    },
+    listSessionPaneBindings: (): Promise<Record<string, string>> =>
+      ipcRenderer.invoke('agentStatus:listSessionPaneBindings'),
     readTerminalContexts: (args: {
       terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
     }): Promise<

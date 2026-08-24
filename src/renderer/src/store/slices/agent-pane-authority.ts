@@ -82,6 +82,21 @@ export function bindAgentSessionPane(
 }
 
 /**
+ * Take the bindings remembered from earlier runs.
+ *
+ * Why on boot and not per event: a hook keeps reporting the pane its process was
+ * born with for as long as that agent runs, which outlasts one Orca run. Without
+ * this every restart put a corrected agent back on the terminal it was never in.
+ */
+export function hydrateAgentSessionPaneBindings(bindings: Record<string, string>): void {
+  for (const [sessionId, paneKey] of Object.entries(bindings)) {
+    if (!ownerPaneKeyBySessionId.has(sessionId)) {
+      bindAgentSessionPane(sessionId, paneKey)
+    }
+  }
+}
+
+/**
  * The pane that owns this status. A hand-made session binding wins over the
  * reported pane key; pane aliases still apply on top, so a corrected session
  * follows its terminal through a later detach.
