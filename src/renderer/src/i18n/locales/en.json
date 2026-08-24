@@ -15595,6 +15595,10 @@
         "loading": "Reading its last reply…",
         "targetHint": "Move the agent here, to terminal {position}",
         "startHint": "This agent is not really in this terminal — move it to the one it is in"
+      },
+      "menu": {
+        "markUnread": "Mark as unread",
+        "moveAgent": "Move this agent to another terminal…"
       }
     },
     "terminalUnread": {

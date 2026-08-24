@@ -1,51 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { AgentWorkingSpinner } from '@/components/AgentWorkingSpinner'
 import { translate } from '@/i18n/i18n'
-import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import { buildTerminalContextRequest } from '@/lib/terminal-context-request'
 import { selectTerminalListTabSources } from '@/lib/terminal-list-tab-sources'
 import {
   buildTerminalListEntries,
   orderTerminalTabsForStrip,
-  type TerminalListEntry,
-  type TerminalListStatus
+  type TerminalListEntry
 } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
-import type { TerminalContext } from '../../../../shared/terminal-context'
-import { EMPTY_TABS, FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
-import { TerminalRowContext, useTerminalContexts } from './terminal-row-context'
-
-/** What is being moved, gathered before anything moves so a person can recognise
- *  it: which agent, and the last thing that agent itself said. */
-type PendingMove = {
-  paneKey: string
-  position: string
-  sessionId: string
-  agentType: string
-  prompt: string
-  transcriptPath?: string
-}
-
-function TerminalStatusIcon({ status }: { status: TerminalListStatus }): React.JSX.Element {
-  if (status === 'unread') {
-    return <FilledBellIcon className="size-3 shrink-0 text-amber-500" />
-  }
-  if (status === 'working') {
-    return <AgentWorkingSpinner className="size-3 shrink-0" />
-  }
-  return <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
-}
-
-function statusLabel(status: TerminalListStatus): string {
-  if (status === 'unread') {
-    return translate('components.terminalList.status.unread', 'Unread')
-  }
-  if (status === 'working') {
-    return translate('components.terminalList.status.working', 'Working')
-  }
-  return translate('components.terminalList.status.idle', 'Idle')
-}
+import { EMPTY_TABS } from '../sidebar/WorktreeCardHelpers'
+import { type PendingMove, TerminalListRow } from './TerminalListRow'
+import { useTerminalContexts } from './terminal-row-context'
 
 /**
  * Every terminal of the active worktree, grouped unread → working → idle.
@@ -285,98 +251,6 @@ function MoveSubjectCard({
               )
             : translate('components.terminalList.move.loading', 'Reading its last reply…'))}
       </div>
-    </div>
-  )
-}
-
-function TerminalListRow({
-  entry,
-  context,
-  canMove,
-  pendingMove,
-  onBeginMove,
-  onCompleteMove
-}: {
-  entry: TerminalListEntry
-  context?: TerminalContext
-  canMove: boolean
-  pendingMove: PendingMove | null
-  onBeginMove: (entry: TerminalListEntry) => void
-  onCompleteMove: (toPaneKey: string) => void
-}): React.JSX.Element {
-  const clearTerminalPaneUnread = useAppStore((s) => s.clearTerminalPaneUnread)
-  const isMoveSource = pendingMove?.paneKey === entry.paneKey
-  const isMoveTarget = Boolean(pendingMove) && !isMoveSource && Boolean(entry.paneKey)
-
-  return (
-    <div className="w-full">
-      <div className="flex w-full items-center">
-        <button
-          type="button"
-          data-testid={isMoveTarget ? 'terminal-list-move-target' : 'terminal-list-row'}
-          data-terminal-status={entry.status}
-          data-pane-key={entry.paneKey ?? ''}
-          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-            isMoveSource
-              ? 'text-muted-foreground opacity-50'
-              : isMoveTarget
-                ? 'text-foreground hover:bg-amber-500/15'
-                : 'text-foreground hover:bg-accent/50'
-          }`}
-          disabled={isMoveSource}
-          title={
-            isMoveTarget
-              ? translate(
-                  'components.terminalList.move.targetHint',
-                  'Move the agent here, to terminal {position}'
-                ).replace('{position}', entry.position)
-              : `${entry.position}  ${entry.name} — ${statusLabel(entry.status)}`
-          }
-          onClick={() => {
-            if (isMoveTarget && entry.paneKey) {
-              onCompleteMove(entry.paneKey)
-              return
-            }
-            activateTabAndFocusPane(entry.tabId, entry.leafId, {
-              ...(entry.paneKey ? { ackPaneKeyOnSuccess: entry.paneKey } : {}),
-              flashFocusedPane: true,
-              // Why the tone: this click is what clears the unread, and the rim is
-              // the only place the terminal itself shows that it happened.
-              ...(entry.status === 'unread' ? { flashFocusedPaneTone: 'unread' as const } : {})
-            })
-            // Why: picking a row is an explicit choice of that terminal, which is what
-            // dismisses unread. Focus alone does not, so the list clears it here.
-            if (entry.paneKey) {
-              clearTerminalPaneUnread(entry.paneKey)
-            }
-          }}
-        >
-          <TerminalStatusIcon status={entry.status} />
-          {/* Why: sorting by status detaches a row from its place in the tab strip, so
-          the number is what points back at "tab 3, terminal 1". */}
-          <span className="shrink-0 tabular-nums text-muted-foreground">{entry.position}</span>
-          <span className="truncate">{entry.name}</span>
-        </button>
-        {/* Why only on rows carrying an agent: there is nothing to move otherwise, and
-          the move is scoped to one agent session, which is also what identifies it. */}
-        {canMove && !pendingMove ? (
-          <button
-            type="button"
-            data-testid="terminal-list-move-start"
-            className="mr-2 shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50"
-            title={translate(
-              'components.terminalList.move.startHint',
-              'This agent is not really in this terminal — move it to the one it is in'
-            )}
-            onClick={() => {
-              onBeginMove(entry)
-            }}
-          >
-            ⤴
-          </button>
-        ) : null}
-      </div>
-      {context ? <TerminalRowContext context={context} /> : null}
     </div>
   )
 }
