@@ -85,6 +85,19 @@ export function parseTranscriptWorkingDirectory(
   return null
 }
 
+/**
+ * Titles that name no turn: the workspace's own folder.
+ *
+ * Why this is needed at all: some agents write the directory they run in into the
+ * window title and never the turn, so that title names every terminal of the
+ * workspace identically. A worktree id carries its path after `::`.
+ */
+export function uninformativeTerminalTitles(worktreeId: string | null): ReadonlySet<string> {
+  const path = worktreeId?.split('::').slice(1).join('::') ?? ''
+  const folder = path ? worktreeNameFromPath(path) : ''
+  return folder ? new Set([folder]) : new Set<string>()
+}
+
 /** The folder's own name — the part a person recognises a worktree by. */
 export function worktreeNameFromPath(cwd: string): string {
   const trimmed = cwd.replace(/[\\/]+$/, '')

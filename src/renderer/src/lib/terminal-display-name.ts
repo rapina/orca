@@ -14,24 +14,30 @@ export type TerminalNameSources = {
   agentStatusByPaneKey: Record<string, AgentStatusEntry> | undefined
   /** Last resort: the tab's own title, which every pane of the tab would share. */
   tabTitle: string
+  /** Window titles that name no turn — the workspace's own folder names. Some
+   *  agents (Codex) write the directory they run in and nothing else. */
+  uninformativeTitles?: ReadonlySet<string> | undefined
 }
 
 /**
 /**
- * A window title names *this* terminal only when it says something the tab title
- * does not.
+ * A window title, unless it names no turn.
  *
- * Why the comparison: some agents set the window title to the folder they run in
- * (Codex writes `<spinner> cozy-sandbox`), so every terminal of a worktree answers
- * with the same words as its tab and the list cannot be read. That is the same
- * reason the tab title is the last resort rather than an early fallback.
+ * Why the list and not a comparison with the tab title: the tab title *is* one of
+ * the pane titles — whichever pane drove it — so comparing against it erases a
+ * pane's own name exactly when that pane is the one driving the tab, which is the
+ * focused one. What actually says nothing is a title that is only a folder name;
+ * some agents (Codex writes `<spinner> cozy-sandbox`) never put the turn there.
  */
-function nameFromWindowTitle(title: string | undefined, tabTitle: string): string | null {
+function nameFromWindowTitle(
+  title: string | undefined,
+  uninformativeTitles: ReadonlySet<string> | undefined
+): string | null {
   const stripped = title ? stripLeadingAgentTitleDecoration(title.trim()).trim() : ''
   if (!stripped) {
     return null
   }
-  return stripped === stripLeadingAgentTitleDecoration(tabTitle.trim()).trim() ? null : stripped
+  return uninformativeTitles?.has(stripped) ? null : stripped
 }
 
 /**
@@ -54,14 +60,17 @@ export function resolveTerminalName(
   if (paneTitle) {
     return paneTitle
   }
-  const fromLiveTitle = nameFromWindowTitle(sources.paneTitlesByLeafId?.[leafId], sources.tabTitle)
+  const fromLiveTitle = nameFromWindowTitle(
+    sources.paneTitlesByLeafId?.[leafId],
+    sources.uninformativeTitles
+  )
   if (fromLiveTitle) {
     return fromLiveTitle
   }
   const status = isTerminalLeafId(leafId)
     ? sources.agentStatusByPaneKey?.[makePaneKey(tabId, leafId)]
     : undefined
-  const fromAgentTitle = nameFromWindowTitle(status?.terminalTitle, sources.tabTitle)
+  const fromAgentTitle = nameFromWindowTitle(status?.terminalTitle, sources.uninformativeTitles)
   if (fromAgentTitle) {
     return fromAgentTitle
   }

@@ -77,6 +77,64 @@ function input(overrides: Partial<TerminalListInput>): TerminalListInput {
   }
 }
 
+describe('agents on a terminal that is gone', () => {
+  const DEAD_LEAF = '44444444-4444-4444-8444-444444444444'
+
+  // Why this row exists: a hook reports the pane key its process was born with,
+  // and a background-job host hands that key to every session it owns. Once the
+  // terminal that started the host is closed, those agents report a pane nothing
+  // draws — the turn runs with no sign of it anywhere. The row is also the only
+  // way to reach the move that fixes it.
+  it('lists a running agent whose pane no longer exists', () => {
+    const dead = makePaneKey('tab-1', DEAD_LEAF)
+    const working = agentEntry(dead, 'working')
+    working.prompt = 'Please rename the held tool sockets'
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'a tab')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A]) },
+        agentStatusByPaneKey: { [dead]: working }
+      })
+    )
+
+    const orphan = entries.find((entry) => entry.paneKey === dead)
+    expect(orphan?.status).toBe('working')
+    expect(orphan?.leafId).toBeNull()
+    expect(orphan?.position).toBe('1.-')
+    expect(orphan?.name).toBe('Rename the held tool sockets')
+  })
+
+  // Why only while running: a finished agent on a pane that is gone is nothing to
+  // act on, and a row that never leaves would silt up the list.
+  it('leaves out an agent that has finished', () => {
+    const dead = makePaneKey('tab-1', DEAD_LEAF)
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'a tab')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A]) },
+        agentStatusByPaneKey: { [dead]: agentEntry(dead, 'done') }
+      })
+    )
+
+    expect(entries.some((entry) => entry.paneKey === dead)).toBe(false)
+  })
+
+  // Why: a pane key from a tab this workspace does not have belongs to another
+  // workspace's list, not this one.
+  it('leaves out an agent whose tab is not in this workspace', () => {
+    const foreign = makePaneKey('tab-other', DEAD_LEAF)
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'a tab')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A]) },
+        agentStatusByPaneKey: { [foreign]: agentEntry(foreign, 'working') }
+      })
+    )
+
+    expect(entries.some((entry) => entry.paneKey === foreign)).toBe(false)
+  })
+})
+
 describe('buildTerminalListEntries', () => {
   it('orders unread first, then working, then idle', () => {
     const idleKey = makePaneKey('tab-1', LEAF_A)

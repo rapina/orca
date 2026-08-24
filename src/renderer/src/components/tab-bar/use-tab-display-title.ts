@@ -2,6 +2,7 @@ import { stripLeadingAgentTitleDecoration } from '../../../../shared/agent-title
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import { resolveTabStripTerminalName } from '@/lib/terminal-display-name'
+import { uninformativeTerminalTitles } from '../../../../shared/terminal-context'
 import { useAppStore } from '../../store'
 
 /**
@@ -19,6 +20,10 @@ export function useTabDisplayTitle(
   tabAgent: TuiAgent | null,
   showUnreadActivity: boolean
 ): string {
+  const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
+  // Why not memoised: this hook is called outside a React render in places, and
+  // the set is one string — the selector below returns a primitive either way.
+  const uninformativeTitles = uninformativeTerminalTitles(activeWorktreeId)
   // Why: the resolver returns a primitive so unrelated store writes cannot repaint this tab.
   const terminalName = useAppStore((s) =>
     resolveTabStripTerminalName(
@@ -28,7 +33,8 @@ export function useTabDisplayTitle(
         agentStatusByPaneKey: s.agentStatusByPaneKey,
         tabTitle: tab.title,
         unreadTerminalPanes: s.unreadTerminalPanes,
-        unreadAgentCompletionPanes: s.unreadAgentCompletionPanes
+        unreadAgentCompletionPanes: s.unreadAgentCompletionPanes,
+        uninformativeTitles
       },
       tab.id,
       { preferUnread: showUnreadActivity }

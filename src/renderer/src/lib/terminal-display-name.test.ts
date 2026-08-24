@@ -62,26 +62,43 @@ describe('resolveTerminalName', () => {
     expect(resolveTerminalName(sources(), TAB, LEAF_B)).toBe('tab title')
   })
 
-  // Why: Codex writes `<spinner> <folder>` into the window title, so every terminal
-  // of a worktree answers with the same words as its tab and the list is unreadable.
-  // What that agent was asked is the only thing left that tells them apart.
-  it('names a terminal by its turn when the window title only repeats the tab', () => {
+  // Why: Codex writes `<spinner> <folder>` into the window title and never the
+  // turn, so that title names every terminal of the workspace identically. What
+  // that agent was asked is the only thing left that tells them apart.
+  it('names a terminal by its turn when the window title is only a folder', () => {
     const codex = entry(LEAF_B, 'working')
     codex.prompt = 'Please rename the held tool sockets so the axe lines up'
     const state = {
       ...sources({ entries: [codex] }),
-      paneTitlesByLeafId: { [LEAF_B]: '⠉ tab title' }
+      paneTitlesByLeafId: { [LEAF_B]: '⠉ cozy-sandbox' },
+      uninformativeTitles: new Set(['cozy-sandbox'])
     }
 
     expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('Rename the held tool sockets so the axe')
   })
 
-  // Why: an agent that does name its turn keeps naming it — this must not become a
-  // rule that throws away the better title Claude already writes.
-  it('keeps a window title that says more than the tab', () => {
+  // Why pinned: the tab title *is* one of the pane titles — whichever pane drove
+  // it — so a rule that skipped a pane title matching the tab's erased a
+  // terminal's own name exactly while that pane was the focused one.
+  it('keeps a pane title that the tab happens to share', () => {
+    const spoken = 'homestead cleanup design clarification'
     const state = {
       ...sources({ entries: [entry(LEAF_B, 'working')] }),
-      paneTitlesByLeafId: { [LEAF_B]: '✳ homestead cleanup design clarification' }
+      paneTitlesByLeafId: { [LEAF_B]: spoken },
+      tabTitle: spoken,
+      uninformativeTitles: new Set(['cozy-sandbox'])
+    }
+
+    expect(resolveTerminalName(state, TAB, LEAF_B)).toBe(spoken)
+  })
+
+  // Why: an agent that does name its turn keeps naming it — this must not become a
+  // rule that throws away the better title Claude already writes.
+  it('keeps a window title that names a turn', () => {
+    const state = {
+      ...sources({ entries: [entry(LEAF_B, 'working')] }),
+      paneTitlesByLeafId: { [LEAF_B]: '✳ homestead cleanup design clarification' },
+      uninformativeTitles: new Set(['cozy-sandbox'])
     }
 
     expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('homestead cleanup design clarification')

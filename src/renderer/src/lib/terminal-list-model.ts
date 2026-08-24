@@ -1,12 +1,13 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
-import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
 import type { Tab, TabGroup } from '../../../shared/tab-types'
 import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,
   TerminalTab
 } from '../../../shared/terminal-tab-types'
+import { deriveGeneratedTabTitle } from '../../../shared/agent-tab-title'
 import { isExplicitAgentStatusFresh } from './agent-status'
 import { resolveTerminalName } from './terminal-display-name'
 import { paneHasUnreadActivity, type PaneUnreadMaps } from './terminal-unread'
@@ -103,7 +104,62 @@ export type TerminalListInput = PaneUnreadMaps & {
   paneTitlesByTabId: Readonly<Record<string, Readonly<Record<string, string>>>> | undefined
   agentStatusByPaneKey: Record<string, AgentStatusEntry> | undefined
   unreadTerminalTabs: Readonly<Record<string, boolean | undefined>> | undefined
+  /** Window titles that name no turn — see `TerminalNameSources`. */
+  uninformativeTitles?: ReadonlySet<string> | undefined
   now: number
+}
+
+/**
+ * Rows for agents that name a terminal this workspace no longer has.
+ *
+ * Why they need a row at all: a hook reports the pane key its process was born
+ * with, and a background-job host hands that key to every session it owns. When
+ * the terminal that started the host is closed, its key stops matching any pane
+ * and every one of those agents reports somewhere that is not drawn — the turn
+ * runs with no sign of it anywhere on screen. A row is also the only way to reach
+ * the move that fixes it.
+ *
+ * Why only while running: a finished agent on a pane that no longer exists is
+ * nothing to act on, and would sit in the list forever. This row leaves by itself.
+ */
+function appendUnattachedAgents(
+  ranked: { entry: TerminalListEntry; tabIndex: number; paneIndex: number }[],
+  input: TerminalListInput
+): void {
+  const listedPaneKeys = new Set(ranked.map((item) => item.entry.paneKey).filter(Boolean))
+  const tabIndexById = new Map(input.tabs.map((tab, index) => [tab.id, index]))
+  for (const [paneKey, entry] of Object.entries(input.agentStatusByPaneKey ?? {})) {
+    if (listedPaneKeys.has(paneKey)) {
+      continue
+    }
+    if (agentStatusToListStatus(entry, input.now) !== 'working') {
+      continue
+    }
+    const parsed = parsePaneKey(paneKey)
+    const tabIndex = parsed ? tabIndexById.get(parsed.tabId) : undefined
+    // Why the tab has to be one of ours: a pane key from another workspace's tab
+    // belongs to that workspace's list, not this one.
+    if (!parsed || tabIndex === undefined) {
+      continue
+    }
+    ranked.push({
+      entry: {
+        paneKey,
+        tabId: parsed.tabId,
+        leafId: null,
+        // Why no pane number: there is no terminal to count to.
+        position: `${tabIndex + 1}.-`,
+        name:
+          deriveGeneratedTabTitle(entry.prompt) ??
+          entry.terminalTitle?.trim() ??
+          input.tabs[tabIndex]?.title ??
+          '',
+        status: 'working'
+      },
+      tabIndex,
+      paneIndex: Number.MAX_SAFE_INTEGER
+    })
+  }
 }
 
 /**
@@ -160,7 +216,10 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
               layout,
               paneTitlesByLeafId: input.paneTitlesByTabId?.[tab.id],
               agentStatusByPaneKey: input.agentStatusByPaneKey,
-              tabTitle
+              tabTitle,
+              ...(input.uninformativeTitles
+                ? { uninformativeTitles: input.uninformativeTitles }
+                : {})
             },
             tab.id,
             leafId
@@ -172,6 +231,8 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
       })
     })
   })
+
+  appendUnattachedAgents(ranked, input)
 
   return ranked
     .sort(

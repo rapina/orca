@@ -9,6 +9,7 @@ import {
   type TerminalListEntry
 } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
+import { uninformativeTerminalTitles } from '../../../../shared/terminal-context'
 import { EMPTY_TABS } from '../sidebar/WorktreeCardHelpers'
 import { type PendingMove, TerminalListRow } from './TerminalListRow'
 import { useTerminalContexts } from './terminal-row-context'
@@ -51,6 +52,13 @@ export default function TerminalListPanel(): React.JSX.Element {
     [tabs, unifiedTabs, groups]
   )
 
+  // Why: an agent that writes only its folder into the window title would name
+  // every terminal of this workspace the same; the list has to skip that title.
+  const uninformativeTitles = useMemo(
+    () => uninformativeTerminalTitles(activeWorktreeId),
+    [activeWorktreeId]
+  )
+
   const entries = useMemo(
     () =>
       buildTerminalListEntries({
@@ -61,6 +69,7 @@ export default function TerminalListPanel(): React.JSX.Element {
         unreadTerminalPanes,
         unreadAgentCompletionPanes,
         unreadTerminalTabs,
+        uninformativeTitles,
         now: Date.now()
       }),
     // Why: agentStatusEpoch is the store's signal that time-based freshness moved without the
@@ -75,7 +84,8 @@ export default function TerminalListPanel(): React.JSX.Element {
       agentStatusEpoch,
       unreadTerminalPanes,
       unreadAgentCompletionPanes,
-      unreadTerminalTabs
+      unreadTerminalTabs,
+      uninformativeTitles
     ]
   )
 
