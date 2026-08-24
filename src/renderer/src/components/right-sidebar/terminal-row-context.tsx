@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { terminalContextRequestKey } from '@/lib/terminal-context-request'
+import {
+  type TerminalContextRequest,
+  terminalContextRequestKey
+} from '@/lib/terminal-context-request'
 import {
   MAX_TERMINAL_PULL_REQUESTS,
   pullRequestLabel,
@@ -9,10 +12,6 @@ import {
 /** Why re-read on a timer: a pull request appears in a recording minutes after the
  *  row was drawn, and nothing tells the renderer that it did. */
 const TERMINAL_CONTEXT_REFRESH_MS = 30_000
-
-export type TerminalContextRequest = {
-  terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
-}
 
 /**
  * What each terminal is working on, kept fresh while the panel is open.

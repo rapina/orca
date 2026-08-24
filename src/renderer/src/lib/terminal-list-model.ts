@@ -7,7 +7,6 @@ import type {
   TerminalPaneLayoutNode,
   TerminalTab
 } from '../../../shared/terminal-tab-types'
-import { deriveGeneratedTabTitle } from '../../../shared/agent-tab-title'
 import { isExplicitAgentStatusFresh } from './agent-status'
 import { resolveTerminalName } from './terminal-display-name'
 import { paneHasUnreadActivity, type PaneUnreadMaps } from './terminal-unread'
@@ -149,11 +148,20 @@ function appendUnattachedAgents(
         leafId: null,
         // Why no pane number: there is no terminal to count to.
         position: `${tabIndex + 1}.-`,
-        name:
-          deriveGeneratedTabTitle(entry.prompt) ??
-          entry.terminalTitle?.trim() ??
-          input.tabs[tabIndex]?.title ??
-          '',
+        // Why the same resolver as every other row: this row would otherwise skip
+        // the folder-only title filter and show the very name the list is built to
+        // reject, and its ladder would disagree with its neighbours for no reason.
+        name: resolveTerminalName(
+          {
+            layout: input.layoutsByTabId[parsed.tabId],
+            paneTitlesByLeafId: input.paneTitlesByTabId?.[parsed.tabId],
+            agentStatusByPaneKey: input.agentStatusByPaneKey,
+            tabTitle: input.tabs[tabIndex]?.title ?? '',
+            ...(input.uninformativeTitles ? { uninformativeTitles: input.uninformativeTitles } : {})
+          },
+          parsed.tabId,
+          parsed.leafId
+        ),
         status: 'working'
       },
       tabIndex,

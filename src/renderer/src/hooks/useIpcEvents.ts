@@ -160,6 +160,7 @@ import {
   hydrateAgentSessionPaneBindings,
   resolveAgentPaneAuthorityKey
 } from '@/store/slices/agent-pane-authority'
+import { paneIsInALayout } from '@/store/slices/agent-status'
 import type {
   AgentStatusBatchTransaction,
   AgentStatusBatchUpdate,
@@ -338,7 +339,7 @@ function isAgentStatusForRecentlyClosedTab(
     // way, so what survives here is the agent, which the list shows as unattached
     // and offers to move. A pane that is still in a layout keeps failing closed —
     // that is the dismissed row this guard was written for.
-    return isPaneInAnyLayout(store, ownerPaneKey)
+    return paneIsInALayout(store, ownerPaneKey)
   }
   const tabId = parsePaneKey(ownerPaneKey)?.tabId
   if (!tabId) {
@@ -354,16 +355,6 @@ function isAgentStatusForRecentlyClosedTab(
   return !isOpenTabId(store, tabId)
 }
 
-function isPaneInAnyLayout(
-  store: Pick<AppState, 'terminalLayoutsByTabId'>,
-  paneKey: string
-): boolean {
-  const parsed = parsePaneKey(paneKey)
-  if (!parsed) {
-    return false
-  }
-  return Boolean(store.terminalLayoutsByTabId?.[parsed.tabId]?.ptyIdsByLeafId?.[parsed.leafId])
-}
 function isOpenTabId(store: Pick<AppState, 'tabsByWorktree'>, tabId: string): boolean {
   for (const tabs of Object.values(store.tabsByWorktree ?? {})) {
     if (tabs.some((tab) => tab.id === tabId)) {

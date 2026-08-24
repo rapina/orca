@@ -116,7 +116,6 @@ export function acknowledgeViewedAgentAttention(
   state: ViewedAgentAttentionActions,
   args: {
     activeWorktreeId: string | null
-    activeTabId: string
     paneKeys: string[]
     activePaneKey?: string | null
   }
@@ -206,7 +205,6 @@ export function useAutoAckViewedAgent(): void {
           })
             ? s.activeWorktreeId
             : null,
-          activeTabId,
           paneKeys: toAck,
           activePaneKey
         })

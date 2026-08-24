@@ -43,16 +43,3 @@ export function collectUnreadLeafIds(maps: PaneUnreadMaps, tabId: string): strin
   }
   return [...leafIds].sort()
 }
-
-/** Pane keys of every unread terminal, across all tabs and worktrees. */
-export function collectUnreadPaneKeys(maps: PaneUnreadMaps): string[] {
-  const paneKeys = new Set<string>()
-  for (const map of unreadSources(maps)) {
-    for (const [paneKey, unread] of Object.entries(map)) {
-      if (unread === true && parsePaneKey(paneKey)) {
-        paneKeys.add(paneKey)
-      }
-    }
-  }
-  return [...paneKeys].sort()
-}

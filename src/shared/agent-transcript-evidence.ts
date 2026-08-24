@@ -6,10 +6,11 @@
  * Several sessions can report one pane key - every agent a background-job host
  * owns reports the terminal that started that host - so the text on such a
  * status can belong to a different session than the id beside it. A transcript
- * belongs to exactly one session, so what it says can be trusted to identify it.
+ * belongs to exactly one session, so showing it to a person names the right one.
  */
 
-/** Why: shorter turns ("done", "ok") match half the terminals on screen. */
+/** Why a floor at all: a reply of "ok" tells a person nothing about which session
+ *  they are looking at, which is the only thing this text is for. */
 const EVIDENCE_MIN_LENGTH = 24
 
 function assistantTextsOf(record: unknown): string[] {
@@ -17,8 +18,8 @@ function assistantTextsOf(record: unknown): string[] {
     return []
   }
   const row = record as Record<string, unknown>
-  // Why skipped: a subagent's turns are not painted in the terminal the way the
-  // session's own are, so they cannot say which terminal shows this session.
+  // Why skipped: a subagent's turns are its own, not this session's, so showing
+  // one would name a conversation the person never had with this agent.
   if (row.isSidechain === true) {
     return []
   }
@@ -45,9 +46,9 @@ function assistantTextsOf(record: unknown): string[] {
 /**
  * The newest assistant turns in a transcript tail, newest first.
  *
- * Why a tail and not the file: transcripts run to megabytes and only the turns
- * still on a terminal's screen can be matched against its recording. The first
- * line is dropped because reading from an offset cuts a record in half.
+ * Why a tail and not the file: transcripts run to megabytes and only the newest
+ * turns say what this session is doing now. The first line is dropped because
+ * reading from an offset cuts a record in half.
  */
 export function assistantTextsFromTranscriptTail(tail: string, limit: number): string[] {
   const lines = tail.split('\n')

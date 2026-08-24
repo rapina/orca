@@ -492,7 +492,10 @@ function findCompletedOrphanPaneKeysForTabClose(
 }
 
 /** Whether a pane key still names a terminal some tab is drawing. */
-function paneIsInALayout(state: AppState, paneKey: string): boolean {
+export function paneIsInALayout(
+  state: Pick<AppState, 'terminalLayoutsByTabId'>,
+  paneKey: string
+): boolean {
   const tabId = getTabIdFromPaneKey(paneKey)
   const leafId = getLeafIdFromPaneKey(paneKey)
   if (!tabId || !leafId) {

@@ -219,7 +219,6 @@ describe('acknowledgeViewedAgentAttention', () => {
 
     acknowledgeViewedAgentAttention(actions, {
       activeWorktreeId: 'wt-1',
-      activeTabId: 'tab-1',
       paneKeys: [paneKey]
     })
 
@@ -235,7 +234,6 @@ describe('acknowledgeViewedAgentAttention', () => {
 
     acknowledgeViewedAgentAttention(actions, {
       activeWorktreeId: 'wt-1',
-      activeTabId: 'tab-1',
       paneKeys: []
     })
 
@@ -252,7 +250,6 @@ describe('acknowledgeViewedAgentAttention', () => {
 
     acknowledgeViewedAgentAttention(actions, {
       activeWorktreeId: 'wt-1',
-      activeTabId: 'tab-1',
       paneKeys: [],
       activePaneKey: paneKey
     })

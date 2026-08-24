@@ -556,7 +556,9 @@ export type TerminalSlice = {
    *  has no way back from a leaf to its title without this. Entries are read through
    *  the live layout, so ones left by a closed pane never surface. */
   runtimePaneTitlesByLeafId: Record<string, Record<string, string>>
-  /** Per-tab unread flags (BEL or agent-complete); ephemeral UI state, not persisted. Cleared when the user activates/interacts with the tab. */
+  /** Derived cache: a tab is flagged while any of its terminals is unread. Written
+   *  only alongside the pane maps — never on its own, and never cleared by activating
+   *  the tab. Ephemeral UI state, not persisted. */
   unreadTerminalTabs: Record<string, true>
   /** Pane-keyed attention marker (narrower than unreadTerminalTabs); clears when the user interacts with the exact pane that raised it. */
   unreadTerminalPanes: Record<string, true>
@@ -2900,6 +2902,22 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         }
       }
 
+      // Why the leaf map too: it was added beside the by-pane map but only the tab-close
+      // path learned to prune it, so every closed pane left an entry behind for the
+      // renderer's lifetime. Reads go through the live layout, so a stale entry never
+      // surfaces — it just never goes away either.
+      let nextRuntimePaneTitlesByLeafId = s.runtimePaneTitlesByLeafId
+      if (s.runtimePaneTitlesByLeafId[opts.tabId]?.[opts.leafId]) {
+        const nextByLeaf = { ...s.runtimePaneTitlesByLeafId[opts.tabId] }
+        delete nextByLeaf[opts.leafId]
+        nextRuntimePaneTitlesByLeafId = { ...s.runtimePaneTitlesByLeafId }
+        if (Object.keys(nextByLeaf).length > 0) {
+          nextRuntimePaneTitlesByLeafId[opts.tabId] = nextByLeaf
+        } else {
+          delete nextRuntimePaneTitlesByLeafId[opts.tabId]
+        }
+      }
+
       const nextUnreadTerminalPanes = { ...s.unreadTerminalPanes }
       const nextUnreadAgentCompletionPanes = { ...s.unreadAgentCompletionPanes }
       const nextLastTerminalInputAtByPaneKey = { ...s.lastTerminalInputAtByPaneKey }
@@ -2921,6 +2939,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         codexRestartNoticeByPtyId: nextCodexRestartNoticeByPtyId,
         ...(nextRuntimePaneTitlesByTabId !== s.runtimePaneTitlesByTabId
           ? { runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId }
+          : {}),
+        ...(nextRuntimePaneTitlesByLeafId !== s.runtimePaneTitlesByLeafId
+          ? { runtimePaneTitlesByLeafId: nextRuntimePaneTitlesByLeafId }
           : {}),
         unreadTerminalPanes: nextUnreadTerminalPanes,
         unreadAgentCompletionPanes: nextUnreadAgentCompletionPanes,

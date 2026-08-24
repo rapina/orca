@@ -15588,23 +15588,27 @@
       },
       "empty": "No terminals in this worktree",
       "move": {
-        "title": "Pick the terminal this agent is really in",
+        "title": "Pick the terminal these notifications belong to",
         "cancel": "Cancel",
-        "shownAt": "shown at",
+        "shownAt": "arriving at",
         "noTurn": "No recent reply found for this session.",
         "loading": "Reading its last reply…",
-        "targetHint": "Move the agent here, to terminal {position}",
-        "startHint": "This agent is not really in this terminal — move it to the one it is in"
+        "targetHint": "Send them here, to terminal {position}"
       },
       "menu": {
         "markUnread": "Mark as unread",
-        "moveAgent": "Move this agent to another terminal…"
+        "moveAgent": "Connect these notifications to another terminal…"
       }
     },
     "terminalUnread": {
       "paneBell": "Unread terminal activity",
       "outlineSetting": "Unread Terminal Outline",
-      "outlineSettingDescription": "Ring the terminal itself while it has unread activity. Off leaves the tab and pane bells as the only cue."
+      "outlineSettingDescription": "Ring the terminal itself while it has unread activity. Off leaves the tab and pane bells as the only cue.",
+      "keyword": {
+        "unread": "unread",
+        "outline": "outline",
+        "bell": "bell"
+      }
     }
   },
   "dashboardPopout": {

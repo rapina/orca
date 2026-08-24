@@ -20,7 +20,6 @@ export type TerminalNameSources = {
 }
 
 /**
-/**
  * A window title, unless it names no turn.
  *
  * Why the list and not a comparison with the tab title: the tab title *is* one of
