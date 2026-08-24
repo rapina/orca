@@ -47,7 +47,32 @@ describe('buildPaneBindingAuditRequest', () => {
       { paneKey: `tabB:${LEAF_B}`, ptyId: 'pty-b' }
     ])
     expect(request.statuses).toEqual([
-      { paneKey: `tabA:${LEAF_A}`, sessionId: 'session-1', evidence: 'the answer' }
+      { paneKey: `tabA:${LEAF_A}`, sessionId: 'session-1', evidence: ['the answer'] }
+    ])
+  })
+
+  // Why this is the working case, not an edge one: `lastAssistantMessage` is cleared
+  // the moment the next turn begins, and a `working` status is what the audit is run
+  // on. Without the other fields there would be nothing to search a recording for.
+  it('carries the fields that survive into the next turn', () => {
+    const working = {
+      paneKey: `tabA:${LEAF_A}`,
+      state: 'working',
+      providerSession: { key: 'session_id', id: 'session-1' },
+      prompt: 'rebind the terminals',
+      lastCompletedAssistantMessage: 'the previous answer',
+      toolInput: 'src/shared/pane-binding-audit.ts'
+    } as unknown as AgentStatusEntry
+    const request = buildPaneBindingAuditRequest({
+      entries: [entry('tabA', LEAF_A, '1.1')],
+      layoutsByTabId: layouts,
+      agentStatusByPaneKey: { [`tabA:${LEAF_A}`]: working }
+    })
+
+    expect(request.statuses[0]?.evidence).toEqual([
+      'the previous answer',
+      'rebind the terminals',
+      'src/shared/pane-binding-audit.ts'
     ])
   })
 

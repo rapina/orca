@@ -29,8 +29,44 @@ export type AgentPaneAuthorityTransfer = {
   ptyId: string | null
 }
 
-export function resolveAgentPaneAuthorityKey(paneKey: string): string {
-  return aliasesByPhysicalPaneKey.get(paneKey)?.ownerPaneKey ?? paneKey
+/**
+ * Terminals a specific agent session was bound to by hand, overriding the pane
+ * key its hook reports.
+ *
+ * Why keyed by session and not by pane: every background-job session reports the
+ * pane key of the terminal that started their shared host, so they all claim one
+ * pane. Re-pointing that pane would drag the other sessions along with the one
+ * being corrected; only the session itself may move.
+ */
+const ownerPaneKeyBySessionId = new Map<string, string>()
+const MAX_AGENT_SESSION_PANE_BINDINGS = 256
+
+export function bindAgentSessionPane(sessionId: string, paneKey: string): boolean {
+  if (!sessionId || !parsePaneKey(paneKey)) {
+    return false
+  }
+  // Why delete first: re-insert so a refreshed binding is not the eviction victim.
+  ownerPaneKeyBySessionId.delete(sessionId)
+  ownerPaneKeyBySessionId.set(sessionId, paneKey)
+  while (ownerPaneKeyBySessionId.size > MAX_AGENT_SESSION_PANE_BINDINGS) {
+    const oldestSessionId = ownerPaneKeyBySessionId.keys().next().value
+    if (!oldestSessionId) {
+      break
+    }
+    ownerPaneKeyBySessionId.delete(oldestSessionId)
+  }
+  return true
+}
+
+/**
+ * The pane that owns this status. A hand-made session binding wins over the
+ * reported pane key; pane aliases still apply on top, so a corrected session
+ * follows its terminal through a later detach.
+ */
+export function resolveAgentPaneAuthorityKey(paneKey: string, sessionId?: string): string {
+  const boundPaneKey = sessionId ? ownerPaneKeyBySessionId.get(sessionId) : undefined
+  const startPaneKey = boundPaneKey ?? paneKey
+  return aliasesByPhysicalPaneKey.get(startPaneKey)?.ownerPaneKey ?? startPaneKey
 }
 
 export function transferAgentPaneAuthorityAlias(args: {
@@ -126,6 +162,12 @@ export function forgetAgentPaneAuthorityAliasesByTabIds(tabIds: Iterable<string>
       aliasesByPhysicalPaneKey.delete(physicalPaneKey)
     }
   }
+  for (const [sessionId, boundPaneKey] of ownerPaneKeyBySessionId) {
+    const boundTabId = parsePaneKey(boundPaneKey)?.tabId
+    if (boundTabId && doomedTabIds.has(boundTabId)) {
+      ownerPaneKeyBySessionId.delete(sessionId)
+    }
+  }
 }
 
 export function countAgentPaneAuthorityAliasesForTests(): number {
@@ -134,4 +176,5 @@ export function countAgentPaneAuthorityAliasesForTests(): number {
 
 export function resetAgentPaneAuthorityAliasesForTests(): void {
   aliasesByPhysicalPaneKey.clear()
+  ownerPaneKeyBySessionId.clear()
 }

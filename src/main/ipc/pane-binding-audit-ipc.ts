@@ -14,6 +14,9 @@ import {
 const TAIL_BYTES = 512 * 1024
 const MAX_PANES = 200
 const MAX_STATUSES = 200
+/** Why bounded: evidence crosses IPC per audit; a runaway field must not fund a huge scan. */
+const MAX_EVIDENCE_PER_STATUS = 8
+const MAX_EVIDENCE_LENGTH = 2000
 
 export type PaneBindingAuditRequest = {
   panes: { paneKey: string; ptyId: string }[]
@@ -75,10 +78,16 @@ function sanitizeRequest(value: unknown): PaneBindingAuditRequest | null {
       typeof status?.sessionId === 'string' &&
       status.sessionId.length > 0
     ) {
+      const evidence = Array.isArray(status.evidence)
+        ? status.evidence
+            .filter((item): item is string => typeof item === 'string')
+            .slice(0, MAX_EVIDENCE_PER_STATUS)
+            .map((item) => item.slice(0, MAX_EVIDENCE_LENGTH))
+        : []
       statuses.push({
         paneKey: status.paneKey,
         sessionId: status.sessionId,
-        ...(typeof status.evidence === 'string' ? { evidence: status.evidence } : {})
+        ...(evidence.length > 0 ? { evidence } : {})
       })
     }
   }

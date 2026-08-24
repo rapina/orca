@@ -9,11 +9,37 @@ export type PaneBindingAuditRequest = {
 }
 
 /**
+ * Text this turn put on the terminal it actually runs in.
+ *
+ * Why all four and not just the assistant message: `lastAssistantMessage` is
+ * cleared the moment the next turn starts, which is exactly when a `working`
+ * status is worth auditing - a check run then would have nothing to search for.
+ * `lastCompletedAssistantMessage` survives that clear, the prompt is echoed by
+ * the TUI, and a tool argument is printed with the tool call.
+ */
+function evidenceFor(status: AgentStatusEntry): string[] {
+  const evidence: string[] = []
+  for (const candidate of [
+    status.lastAssistantMessage,
+    status.lastCompletedAssistantMessage,
+    status.prompt,
+    status.toolInput
+  ]) {
+    const text = candidate?.trim()
+    if (text) {
+      evidence.push(text)
+    }
+  }
+  return evidence
+}
+
+/**
  * The terminals to read and the statuses to check.
  *
  * Why only panes with a pty: the audit reads a terminal's recorded output, and a
  * pane that never ran one has nothing to say. Why only statuses with a session
- * id: that id is the thing the recording can be searched for.
+ * id: the correction binds that id to a terminal, so a status without one has
+ * nothing to move.
  */
 export function buildPaneBindingAuditRequest(input: {
   entries: readonly TerminalListEntry[]
@@ -45,8 +71,8 @@ export function buildPaneBindingAuditRequest(input: {
     if (!sessionId) {
       continue
     }
-    const evidence = status.lastAssistantMessage?.trim()
-    statuses.push({ paneKey, sessionId, ...(evidence ? { evidence } : {}) })
+    const evidence = evidenceFor(status)
+    statuses.push({ paneKey, sessionId, ...(evidence.length > 0 ? { evidence } : {}) })
   }
   return { panes, statuses }
 }

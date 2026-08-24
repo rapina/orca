@@ -41,6 +41,7 @@ import {
 } from '@/lib/agent-row-primary-text'
 import { isCompletedPiCompatibleAgentWithLiveRecoveryRecord } from '@/lib/pi-compatible-live-recovery-record'
 import {
+  bindAgentSessionPane,
   resolveAgentPaneAuthorityKey,
   retireAgentPaneAuthorityAliases,
   retireAgentPaneAuthorityAliasesByOwnerTab,
@@ -208,6 +209,8 @@ export type AgentStatusSlice = {
     fromPaneKey: string
     toPaneKey: string
     ptyId?: string | null
+    /** Move only this agent session, leaving the source pane's other sessions put. */
+    sessionId?: string
   }) => void
 
   /** Update or insert an agent status entry from a status payload. */
@@ -1545,8 +1548,20 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
       }
     },
 
-    transferAgentPaneAuthority: ({ fromPaneKey, toPaneKey, ptyId }) => {
-      const transfer = transferAgentPaneAuthorityAlias({ fromPaneKey, toPaneKey, ptyId })
+    transferAgentPaneAuthority: ({ fromPaneKey, toPaneKey, ptyId, sessionId }) => {
+      // Why a session id changes the move: without one this is a pane detaching and
+      // every key pointing at it must follow. With one it is a single session that
+      // reported the wrong pane, and the pane it named still owns whatever else
+      // reports there - re-pointing it would drag those along too.
+      const boundSession = sessionId ? bindAgentSessionPane(sessionId, toPaneKey) : false
+      const transfer = boundSession
+        ? {
+            physicalPaneKey: fromPaneKey,
+            previousOwnerPaneKey: resolveAgentPaneAuthorityKey(fromPaneKey),
+            ownerPaneKey: toPaneKey,
+            ptyId: ptyId ?? null
+          }
+        : transferAgentPaneAuthorityAlias({ fromPaneKey, toPaneKey, ptyId })
       if (!transfer || transfer.previousOwnerPaneKey === transfer.ownerPaneKey) {
         return
       }
@@ -1603,7 +1618,9 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         cacheTimerByKey: movePaneKeyedRecord(s.cacheTimerByKey, from, to),
         retentionSuppressedPaneKeys: movePaneKeyedRecord(s.retentionSuppressedPaneKeys, from, to)
       }))
-      if (typeof window !== 'undefined') {
+      // Why main is told only for a pane move: its alias is pane-scoped too, so a
+      // session correction sent there would re-point every session on that pane.
+      if (!boundSession && typeof window !== 'undefined') {
         window.api?.agentStatus?.transferPaneAuthority?.({
           fromPaneKey: from,
           toPaneKey: to,
@@ -1908,7 +1925,10 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
     },
 
     setAgentStatus: (paneKey, payload, terminalTitle, timing, routing, metadata) => {
-      paneKey = resolveAgentPaneAuthorityKey(paneKey)
+      // Why the session id: a background-job session reports the pane key of the
+      // terminal that started its host, not the one showing it, so a hand-made
+      // binding for that session has to win over the key on the wire.
+      paneKey = resolveAgentPaneAuthorityKey(paneKey, metadata?.providerSession?.id)
       const updatedAt = timing?.updatedAt ?? Date.now()
       if (
         paneKey in get().recentlyRetiredAgentStatusPaneKeys ||
