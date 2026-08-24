@@ -4880,18 +4880,8 @@ const api = {
     }): void => {
       ipcRenderer.send('agentStatus:transferPaneAuthority', args)
     },
-    auditPaneBindings: (args: {
-      panes: { paneKey: string; ptyId: string }[]
-      statuses: { paneKey: string; sessionId: string; transcriptPath?: string }[]
-    }): Promise<
-      {
-        paneKey: string
-        sessionId: string
-        candidatePaneKey: string
-        candidateHits: number
-        runnerUpHits: number
-      }[]
-    > => ipcRenderer.invoke('agentStatus:auditPaneBindings', args)
+    readSessionTurn: (args: { transcriptPath: string }): Promise<string | null> =>
+      ipcRenderer.invoke('agentStatus:readSessionTurn', args)
   },
 
   speech: {

@@ -36,19 +36,9 @@ export type AgentStatusApi = {
   retirePaneAuthority: (paneKey: string) => void
   /** Move hook authority when a live pane is detached into another tab. */
   transferPaneAuthority: (args: { fromPaneKey: string; toPaneKey: string; ptyId?: string }) => void
-  /** Check every terminal's recorded output for statuses bound to the wrong pane. */
-  auditPaneBindings: (args: {
-    panes: { paneKey: string; ptyId: string }[]
-    statuses: { paneKey: string; sessionId: string; transcriptPath?: string }[]
-  }) => Promise<
-    {
-      paneKey: string
-      sessionId: string
-      candidatePaneKey: string
-      candidateHits: number
-      runnerUpHits: number
-    }[]
-  >
+  /** The last thing one session said, read from its own transcript, so a person
+   *  can tell which agent a status belongs to before moving it. */
+  readSessionTurn: (args: { transcriptPath: string }) => Promise<string | null>
 }
 
 export type AgentTrustApi = {

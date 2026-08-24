@@ -15586,7 +15586,16 @@
         "working": "Working",
         "idle": "Idle"
       },
-      "empty": "No terminals in this worktree"
+      "empty": "No terminals in this worktree",
+      "move": {
+        "title": "Pick the terminal this agent is really in",
+        "cancel": "Cancel",
+        "shownAt": "shown at",
+        "noTurn": "No recent reply found for this session.",
+        "loading": "Reading its last reply…",
+        "targetHint": "Move the agent here, to terminal {position}",
+        "startHint": "This agent is not really in this terminal — move it to the one it is in"
+      }
     },
     "terminalUnread": {
       "paneBell": "Unread terminal activity",

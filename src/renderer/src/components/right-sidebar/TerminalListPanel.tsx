@@ -1,9 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { AgentWorkingSpinner } from '@/components/AgentWorkingSpinner'
 import { translate } from '@/i18n/i18n'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
-import { buildPaneBindingAuditRequest } from '@/lib/terminal-binding-audit'
 import { selectTerminalListTabSources } from '@/lib/terminal-list-tab-sources'
 import {
   buildTerminalListEntries,
@@ -12,8 +11,18 @@ import {
   type TerminalListStatus
 } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
-import type { PaneBindingFinding } from '../../../../shared/pane-binding-audit'
 import { EMPTY_TABS, FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
+
+/** What is being moved, gathered before anything moves so a person can recognise
+ *  it: which agent, and the last thing that agent itself said. */
+type PendingMove = {
+  paneKey: string
+  position: string
+  sessionId: string
+  agentType: string
+  prompt: string
+  transcriptPath?: string
+}
 
 function TerminalStatusIcon({ status }: { status: TerminalListStatus }): React.JSX.Element {
   if (status === 'unread') {
@@ -102,49 +111,46 @@ export default function TerminalListPanel(): React.JSX.Element {
   )
 
   const transferAgentPaneAuthority = useAppStore((s) => s.transferAgentPaneAuthority)
-  const [audit, setAudit] = useState<{
-    ran: boolean
-    busy: boolean
-    findings: PaneBindingFinding[]
-  }>({ ran: false, busy: false, findings: [] })
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
 
-  const runAudit = useCallback(async () => {
-    setAudit((current) => ({ ...current, busy: true }))
-    const request = buildPaneBindingAuditRequest({
-      entries,
-      layoutsByTabId,
-      agentStatusByPaneKey
-    })
-    const findings = (await window.api?.agentStatus?.auditPaneBindings?.(request)) ?? []
-    setAudit({ ran: true, busy: false, findings })
-  }, [entries, layoutsByTabId, agentStatusByPaneKey])
-
-  // Why: rebinding is what the finding is for, so drop it once acted on rather
-  // than leaving a stale warning until the next audit.
-  const applyFinding = useCallback(
-    (finding: PaneBindingFinding) => {
-      transferAgentPaneAuthority({
-        fromPaneKey: finding.paneKey,
-        toPaneKey: finding.candidatePaneKey,
-        sessionId: finding.sessionId
+  const beginMove = useCallback(
+    (entry: TerminalListEntry) => {
+      const status = entry.paneKey ? agentStatusByPaneKey[entry.paneKey] : undefined
+      const sessionId = status?.providerSession?.id?.trim()
+      if (!entry.paneKey || !sessionId) {
+        return
+      }
+      setPendingMove({
+        paneKey: entry.paneKey,
+        position: entry.position,
+        sessionId,
+        agentType: status?.agentType ?? 'agent',
+        prompt: status?.prompt?.trim() ?? '',
+        ...(status?.providerSession?.transcriptPath
+          ? { transcriptPath: status.providerSession.transcriptPath }
+          : {})
       })
-      setAudit((current) => ({
-        ...current,
-        findings: current.findings.filter((item) => item.paneKey !== finding.paneKey)
-      }))
     },
-    [transferAgentPaneAuthority]
+    [agentStatusByPaneKey]
   )
 
-  const positionByPaneKey = useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const entry of entries) {
-      if (entry.paneKey) {
-        map[entry.paneKey] = entry.position
+  const completeMove = useCallback(
+    (toPaneKey: string) => {
+      if (!pendingMove || toPaneKey === pendingMove.paneKey) {
+        return
       }
-    }
-    return map
-  }, [entries])
+      // Why the session id rather than the pane: several agents report one pane key
+      // whenever a background-job host owns them, so re-pointing the pane would drag
+      // the others onto this terminal too. Only the named session moves.
+      transferAgentPaneAuthority({
+        fromPaneKey: pendingMove.paneKey,
+        toPaneKey,
+        sessionId: pendingMove.sessionId
+      })
+      setPendingMove(null)
+    },
+    [pendingMove, transferAgentPaneAuthority]
+  )
 
   if (entries.length === 0) {
     return (
@@ -156,125 +162,166 @@ export default function TerminalListPanel(): React.JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TerminalListAuditBar
-        busy={audit.busy}
-        ran={audit.ran}
-        findingCount={audit.findings.length}
-        onRun={() => {
-          void runAudit()
-        }}
-      />
+      {pendingMove ? (
+        <MoveSubjectCard
+          move={pendingMove}
+          onCancel={() => {
+            setPendingMove(null)
+          }}
+        />
+      ) : null}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1 scrollbar-sleek">
-        {entries.map((entry) => {
-          const finding = entry.paneKey
-            ? audit.findings.find((item) => item.paneKey === entry.paneKey)
-            : undefined
-          return (
-            <TerminalListRow
-              key={entry.paneKey ?? entry.tabId}
-              entry={entry}
-              {...(finding
-                ? {
-                    finding,
-                    candidatePosition: positionByPaneKey[finding.candidatePaneKey] ?? '?',
-                    onApplyFinding: applyFinding
-                  }
-                : {})}
-            />
-          )
-        })}
+        {entries.map((entry) => (
+          <TerminalListRow
+            key={entry.paneKey ?? entry.tabId}
+            entry={entry}
+            canMove={Boolean(
+              entry.paneKey && agentStatusByPaneKey[entry.paneKey]?.providerSession?.id
+            )}
+            pendingMove={pendingMove}
+            onBeginMove={beginMove}
+            onCompleteMove={completeMove}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
 /**
- * What the suggestion is based on, so it can be judged before it is taken.
+ * What the pending move is about to take, in that agent's own words.
  *
- * Why the matched text is in here: the audit picks a terminal by finding this
- * session's own words in its recording, and a wrong pick is only recognisable by
- * seeing which words those were.
+ * Why the agent's own words and not the status text beside it: a pane holds one
+ * status, and its prompt and message fields carry over from whatever reported
+ * there last. Several agents report one pane key whenever a background-job host
+ * owns them, so the text on the status can belong to a different agent than the
+ * one named here - and telling those apart is the whole job of this card. A
+ * transcript belongs to one session by construction.
  */
-function rebindHint(finding: PaneBindingFinding, candidatePosition: string | undefined): string {
-  const hint = translate(
-    'components.terminalList.audit.rebindHint',
-    'This status looks like it belongs to terminal {position}. Move it there.'
-  ).replace('{position}', candidatePosition ?? '?')
-  const matched = finding.matchedText?.trim()
-  if (!matched) {
-    return hint
-  }
-  return `${hint}
-
-${translate('components.terminalList.audit.rebindMatch', 'Matched there:')} ${matched.slice(0, 80)}`
-}
-
-/**
- * The audit control and its last result.
- *
- * Why a manual run: reading every terminal's recorded output is a burst of file
- * reads, and the answer only matters when a status looks wrong to the user.
- */
-function TerminalListAuditBar({
-  busy,
-  ran,
-  findingCount,
-  onRun
+function MoveSubjectCard({
+  move,
+  onCancel
 }: {
-  busy: boolean
-  ran: boolean
-  findingCount: number
-  onRun: () => void
+  move: PendingMove
+  onCancel: () => void
 }): React.JSX.Element {
+  const [spokenTurn, setSpokenTurn] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const transcriptPath = move.transcriptPath
+
+  useEffect(() => {
+    let cancelled = false
+    setSpokenTurn(null)
+    setLoaded(false)
+    if (!transcriptPath) {
+      setLoaded(true)
+      return
+    }
+    void window.api?.agentStatus
+      ?.readSessionTurn?.({ transcriptPath })
+      .then((text) => {
+        if (!cancelled) {
+          setSpokenTurn(text ?? null)
+          setLoaded(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoaded(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [transcriptPath])
+
   return (
-    <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5">
-      <button
-        type="button"
-        data-testid="terminal-list-audit-run"
-        className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50 disabled:opacity-50"
-        disabled={busy}
-        onClick={onRun}
-      >
-        {busy
-          ? translate('components.terminalList.audit.running', 'Checking…')
-          : translate('components.terminalList.audit.run', 'Check bindings')}
-      </button>
-      {ran && !busy ? (
-        <span className="truncate text-[11px] text-muted-foreground">
-          {findingCount === 0
-            ? translate('components.terminalList.audit.clean', 'All statuses match their terminal')
-            : translate('components.terminalList.audit.found', '{count} look misplaced').replace(
-                '{count}',
-                String(findingCount)
-              )}
+    <div
+      data-testid="terminal-list-move-subject"
+      className="flex flex-col gap-1 border-b border-amber-500/40 bg-amber-500/5 px-3 py-2"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-[11px] font-medium text-amber-600 dark:text-amber-400">
+          {translate(
+            'components.terminalList.move.title',
+            'Pick the terminal this agent is really in'
+          )}
         </span>
+        <button
+          type="button"
+          data-testid="terminal-list-move-cancel"
+          className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50"
+          onClick={onCancel}
+        >
+          {translate('components.terminalList.move.cancel', 'Cancel')}
+        </button>
+      </div>
+      <div className="text-[11px] text-muted-foreground">
+        {`${move.agentType} · ${translate('components.terminalList.move.shownAt', 'shown at')} ${move.position} · ${move.sessionId.slice(0, 8)}`}
+      </div>
+      {/* Why both lines: the prompt is what you asked it and the reply is what you
+          watched it say — either one can be what you recognise it by. */}
+      {move.prompt ? (
+        <div className="line-clamp-2 text-[11px] text-foreground">{`> ${move.prompt}`}</div>
       ) : null}
+      <div className="line-clamp-3 text-[11px] text-foreground/80">
+        {spokenTurn ??
+          (loaded
+            ? translate(
+                'components.terminalList.move.noTurn',
+                'No recent reply found for this session.'
+              )
+            : translate('components.terminalList.move.loading', 'Reading its last reply…'))}
+      </div>
     </div>
   )
 }
 
 function TerminalListRow({
   entry,
-  finding,
-  candidatePosition,
-  onApplyFinding
+  canMove,
+  pendingMove,
+  onBeginMove,
+  onCompleteMove
 }: {
   entry: TerminalListEntry
-  finding?: PaneBindingFinding
-  candidatePosition?: string
-  onApplyFinding?: (finding: PaneBindingFinding) => void
+  canMove: boolean
+  pendingMove: PendingMove | null
+  onBeginMove: (entry: TerminalListEntry) => void
+  onCompleteMove: (toPaneKey: string) => void
 }): React.JSX.Element {
   const clearTerminalPaneUnread = useAppStore((s) => s.clearTerminalPaneUnread)
+  const isMoveSource = pendingMove?.paneKey === entry.paneKey
+  const isMoveTarget = Boolean(pendingMove) && !isMoveSource && Boolean(entry.paneKey)
+
   return (
     <div className="flex w-full items-center">
       <button
         type="button"
-        data-testid="terminal-list-row"
+        data-testid={isMoveTarget ? 'terminal-list-move-target' : 'terminal-list-row'}
         data-terminal-status={entry.status}
         data-pane-key={entry.paneKey ?? ''}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        title={`${entry.position}  ${entry.name} — ${statusLabel(entry.status)}`}
+        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+          isMoveSource
+            ? 'text-muted-foreground opacity-50'
+            : isMoveTarget
+              ? 'text-foreground hover:bg-amber-500/15'
+              : 'text-foreground hover:bg-accent/50'
+        }`}
+        disabled={isMoveSource}
+        title={
+          isMoveTarget
+            ? translate(
+                'components.terminalList.move.targetHint',
+                'Move the agent here, to terminal {position}'
+              ).replace('{position}', entry.position)
+            : `${entry.position}  ${entry.name} — ${statusLabel(entry.status)}`
+        }
         onClick={() => {
+          if (isMoveTarget && entry.paneKey) {
+            onCompleteMove(entry.paneKey)
+            return
+          }
           activateTabAndFocusPane(entry.tabId, entry.leafId, {
             ...(entry.paneKey ? { ackPaneKeyOnSuccess: entry.paneKey } : {}),
             flashFocusedPane: true,
@@ -295,17 +342,22 @@ function TerminalListRow({
         <span className="shrink-0 tabular-nums text-muted-foreground">{entry.position}</span>
         <span className="truncate">{entry.name}</span>
       </button>
-      {finding && onApplyFinding ? (
+      {/* Why only on rows carrying an agent: there is nothing to move otherwise, and
+          the move is scoped to one agent session, which is also what identifies it. */}
+      {canMove && !pendingMove ? (
         <button
           type="button"
-          data-testid="terminal-list-rebind"
-          className="mr-2 shrink-0 rounded border border-amber-500/60 px-1.5 py-0.5 text-[11px] text-amber-500 hover:bg-amber-500/10"
-          title={rebindHint(finding, candidatePosition)}
+          data-testid="terminal-list-move-start"
+          className="mr-2 shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50"
+          title={translate(
+            'components.terminalList.move.startHint',
+            'This agent is not really in this terminal — move it to the one it is in'
+          )}
           onClick={() => {
-            onApplyFinding(finding)
+            onBeginMove(entry)
           }}
         >
-          {`⚠ → ${candidatePosition ?? '?'}`}
+          ⤴
         </button>
       ) : null}
     </div>

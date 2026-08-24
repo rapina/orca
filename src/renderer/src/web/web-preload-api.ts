@@ -946,8 +946,8 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       dropByTabPrefix: () => {},
       retirePaneAuthority: () => {},
       transferPaneAuthority: () => {},
-      // Why: the audit reads terminal recordings from disk, which the web client has no access to.
-      auditPaneBindings: async () => []
+      // Why: reading a transcript needs the disk, which the web client has no access to.
+      readSessionTurn: async () => null
     },
     mobile: {
       listNetworkInterfaces: () => Promise.resolve({ interfaces: [] }),
