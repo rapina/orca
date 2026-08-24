@@ -310,19 +310,64 @@ const WORKTREE_RENAME_PURGE_GRACE_MS = 20_000
 const recentlyRenamedWorktreeIdExpiry = new Map<string, number>()
 
 function isAgentStatusForRecentlyClosedTab(
-  store: Pick<AppState, 'recentlyClosedAgentStatusTabIds' | 'recentlyRetiredAgentStatusPaneKeys'>,
+  store: Pick<
+    AppState,
+    | 'recentlyClosedAgentStatusTabIds'
+    | 'recentlyRetiredAgentStatusPaneKeys'
+    | 'tabsByWorktree'
+    | 'terminalLayoutsByTabId'
+  >,
   paneKey: string,
-  sessionId?: string
+  sessionId?: string,
+  state?: string
 ): boolean {
   const ownerPaneKey = resolveAgentPaneAuthorityKey(paneKey, sessionId)
   if (store.recentlyRetiredAgentStatusPaneKeys?.[ownerPaneKey] === true) {
-    return true
+    if (state === 'done') {
+      // Why: a finished turn arriving after the pane closed is that pane's tail,
+      // which is exactly what this guard was written for.
+      return true
+    }
+    // Why not an unconditional drop: an agent outlives the terminal it was started
+    // in whenever a background-job host owns it, and it keeps reporting that pane
+    // forever. Dropping those left a running turn with no sign of it anywhere at
+    // all. A pane that no layout has any more cannot get a terminal row back either
+    // way, so what survives here is the agent, which the list shows as unattached
+    // and offers to move. A pane that is still in a layout keeps failing closed —
+    // that is the dismissed row this guard was written for.
+    return isPaneInAnyLayout(store, ownerPaneKey)
   }
   const tabId = parsePaneKey(ownerPaneKey)?.tabId
   if (!tabId) {
     return false
   }
-  return store.recentlyClosedAgentStatusTabIds[tabId] === true
+  if (store.recentlyClosedAgentStatusTabIds[tabId] !== true) {
+    return false
+  }
+  // Why the tab is looked up: this set is only ever added to, so a tab closed once
+  // stayed deaf to every pane inside it for the rest of the run — reopening it
+  // changed nothing and its agents ran with no sign of them anywhere. A tab that is
+  // in the workspace again is open, whatever the set still remembers.
+  return !isOpenTabId(store, tabId)
+}
+
+function isPaneInAnyLayout(
+  store: Pick<AppState, 'terminalLayoutsByTabId'>,
+  paneKey: string
+): boolean {
+  const parsed = parsePaneKey(paneKey)
+  if (!parsed) {
+    return false
+  }
+  return Boolean(store.terminalLayoutsByTabId?.[parsed.tabId]?.ptyIdsByLeafId?.[parsed.leafId])
+}
+function isOpenTabId(store: Pick<AppState, 'tabsByWorktree'>, tabId: string): boolean {
+  for (const tabs of Object.values(store.tabsByWorktree ?? {})) {
+    if (tabs.some((tab) => tab.id === tabId)) {
+      return true
+    }
+  }
+  return false
 }
 
 function getAuthoritativeDetectedWorktreeIds(state: AppState, repoId: string): Set<string> | null {
@@ -3169,7 +3214,9 @@ export function useIpcEvents(): void {
       if (!store.workspaceSessionReady) {
         return 'dropped'
       }
-      if (isAgentStatusForRecentlyClosedTab(store, data.paneKey, data.providerSession?.id)) {
+      if (
+        isAgentStatusForRecentlyClosedTab(store, data.paneKey, data.providerSession?.id, data.state)
+      ) {
         return 'dropped'
       }
       // Why the session id: a hand-made binding moves one agent session off the

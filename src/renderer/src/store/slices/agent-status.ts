@@ -491,6 +491,16 @@ function findCompletedOrphanPaneKeysForTabClose(
   return paneKeys
 }
 
+/** Whether a pane key still names a terminal some tab is drawing. */
+function paneIsInALayout(state: AppState, paneKey: string): boolean {
+  const tabId = getTabIdFromPaneKey(paneKey)
+  const leafId = getLeafIdFromPaneKey(paneKey)
+  if (!tabId || !leafId) {
+    return false
+  }
+  return Boolean(state.terminalLayoutsByTabId?.[tabId]?.ptyIdsByLeafId?.[leafId])
+}
+
 function isRecentlyClosedAgentStatusTab(
   closedTabs: Record<string, true>,
   tabId: string | null
@@ -1932,8 +1942,20 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
       // binding for that session has to win over the key on the wire.
       paneKey = resolveAgentPaneAuthorityKey(paneKey, metadata?.providerSession?.id)
       const updatedAt = timing?.updatedAt ?? Date.now()
+      // Why a retired pane still in a layout fails closed, and one that is gone does
+      // not: the guard is for late events resurrecting a dismissed row. An agent
+      // whose terminal was closed keeps running under its background-job host and
+      // keeps reporting that pane forever - dropping those left a running turn with
+      // no sign of it anywhere. It cannot get a terminal row back either way, so the
+      // list shows it as unattached and offers to move it.
+      // Why a finished turn is still rejected: that is the tail of the pane that was
+      // just closed, which is what this guard was written for. A turn that is still
+      // running when its terminal is already gone is the other thing entirely.
+      const retiredPaneRejects =
+        paneKey in get().recentlyRetiredAgentStatusPaneKeys &&
+        (payload.state === 'done' || paneIsInALayout(get(), paneKey))
       if (
-        paneKey in get().recentlyRetiredAgentStatusPaneKeys ||
+        retiredPaneRejects ||
         // Why: a closed tab is no longer a valid destination for hook replays or late status events.
         isRecentlyClosedAgentStatusTab(
           get().recentlyClosedAgentStatusTabIds,
