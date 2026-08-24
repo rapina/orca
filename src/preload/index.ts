@@ -4882,7 +4882,7 @@ const api = {
     },
     auditPaneBindings: (args: {
       panes: { paneKey: string; ptyId: string }[]
-      statuses: { paneKey: string; sessionId: string; evidence?: readonly string[] }[]
+      statuses: { paneKey: string; sessionId: string; transcriptPath?: string }[]
     }): Promise<
       {
         paneKey: string

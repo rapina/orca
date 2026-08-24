@@ -2,6 +2,7 @@ import { open, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, ipcMain } from 'electron'
 import { isValidPaneKey } from '../agent-hooks/server'
+import { assistantTextsFromTranscriptTail } from '../../shared/agent-transcript-evidence'
 import {
   auditPaneBindings,
   type PaneBindingFinding,
@@ -12,29 +13,39 @@ import {
 /** Why: enough recorded output to carry a session's own turns, small enough that
  *  auditing a dozen terminals stays a single on-demand read each. */
 const TAIL_BYTES = 512 * 1024
+/** Why this large: a busy transcript's tail is mostly tool results, and the audit
+ *  needs the last few turns the agent actually spoke. */
+const TRANSCRIPT_TAIL_BYTES = 1024 * 1024
+const TRANSCRIPT_EVIDENCE_MAX = 4
 const MAX_PANES = 200
 const MAX_STATUSES = 200
-/** Why bounded: evidence crosses IPC per audit; a runaway field must not fund a huge scan. */
-const MAX_EVIDENCE_PER_STATUS = 8
+/** Why bounded: a transcript turn can be enormous, and every window of it costs a
+ *  scan of every terminal's tail. */
 const MAX_EVIDENCE_LENGTH = 2000
+
+export type PaneBindingAuditStatus = {
+  paneKey: string
+  sessionId: string
+  /** The session's own on-disk record, when its hook reported one. */
+  transcriptPath?: string
+}
 
 export type PaneBindingAuditRequest = {
   panes: { paneKey: string; ptyId: string }[]
-  statuses: PaneBindingStatusInput[]
+  statuses: PaneBindingAuditStatus[]
 }
 
 function historyLogPath(ptyId: string): string {
   return join(app.getPath('userData'), 'terminal-history', encodeURIComponent(ptyId), 'output.log')
 }
 
-/** Why the tail only: these logs run to megabytes, and a session that is live in
- *  a terminal has written to its end. */
-async function readOutputTail(ptyId: string): Promise<string | null> {
-  const path = historyLogPath(ptyId)
+/** Why the tail only: these files run to megabytes, and what a live session put on
+ *  screen is at the end of both its recording and its transcript. */
+async function readTail(path: string, tailBytes: number): Promise<string | null> {
   let handle: Awaited<ReturnType<typeof open>> | null = null
   try {
     const { size } = await stat(path)
-    const length = Math.min(size, TAIL_BYTES)
+    const length = Math.min(size, tailBytes)
     if (length === 0) {
       return ''
     }
@@ -47,6 +58,26 @@ async function readOutputTail(ptyId: string): Promise<string | null> {
   } finally {
     await handle?.close().catch(() => {})
   }
+}
+
+/**
+ * What this session itself said, read from its own record.
+ *
+ * Why not the status fields: see the note on `agent-transcript-evidence`. Text on
+ * a shared pane key can belong to another session and would point confidently at
+ * that session's terminal.
+ */
+async function readTranscriptEvidence(transcriptPath: string): Promise<string[]> {
+  if (!transcriptPath.toLowerCase().endsWith('.jsonl')) {
+    return []
+  }
+  const tail = await readTail(transcriptPath, TRANSCRIPT_TAIL_BYTES)
+  if (!tail) {
+    return []
+  }
+  return assistantTextsFromTranscriptTail(tail, TRANSCRIPT_EVIDENCE_MAX).map((text) =>
+    text.slice(0, MAX_EVIDENCE_LENGTH)
+  )
 }
 
 function sanitizeRequest(value: unknown): PaneBindingAuditRequest | null {
@@ -69,7 +100,7 @@ function sanitizeRequest(value: unknown): PaneBindingAuditRequest | null {
       panes.push({ paneKey: pane.paneKey, ptyId: pane.ptyId })
     }
   }
-  const statuses: PaneBindingStatusInput[] = []
+  const statuses: PaneBindingAuditStatus[] = []
   for (const entry of raw.statuses.slice(0, MAX_STATUSES)) {
     const status = entry as Record<string, unknown>
     if (
@@ -78,16 +109,12 @@ function sanitizeRequest(value: unknown): PaneBindingAuditRequest | null {
       typeof status?.sessionId === 'string' &&
       status.sessionId.length > 0
     ) {
-      const evidence = Array.isArray(status.evidence)
-        ? status.evidence
-            .filter((item): item is string => typeof item === 'string')
-            .slice(0, MAX_EVIDENCE_PER_STATUS)
-            .map((item) => item.slice(0, MAX_EVIDENCE_LENGTH))
-        : []
       statuses.push({
         paneKey: status.paneKey,
         sessionId: status.sessionId,
-        ...(evidence.length > 0 ? { evidence } : {})
+        ...(typeof status.transcriptPath === 'string' && status.transcriptPath.length > 0
+          ? { transcriptPath: status.transcriptPath }
+          : {})
       })
     }
   }
@@ -99,12 +126,27 @@ export async function runPaneBindingAudit(
 ): Promise<PaneBindingFinding[]> {
   const samples: PaneOutputSample[] = []
   for (const pane of request.panes) {
-    const tail = await readOutputTail(pane.ptyId)
+    const tail = await readTail(historyLogPath(pane.ptyId), TAIL_BYTES)
     if (tail !== null) {
       samples.push({ paneKey: pane.paneKey, tail })
     }
   }
-  return auditPaneBindings(request.statuses, samples)
+  const statuses: PaneBindingStatusInput[] = []
+  for (const status of request.statuses) {
+    // Why the transcript is the only source: text taken from the status itself can
+    // belong to another session sharing that pane key, and it would then point at
+    // that session's terminal with full confidence. A session with no readable
+    // transcript falls back to its id, which nothing but the session echoes.
+    const evidence = status.transcriptPath
+      ? await readTranscriptEvidence(status.transcriptPath)
+      : []
+    statuses.push({
+      paneKey: status.paneKey,
+      sessionId: status.sessionId,
+      ...(evidence.length > 0 ? { evidence } : {})
+    })
+  }
+  return auditPaneBindings(statuses, samples)
 }
 
 export function registerPaneBindingAuditIpcHandlers(): void {

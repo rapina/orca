@@ -1,36 +1,18 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
-import type { PaneBindingStatusInput } from '../../../shared/pane-binding-audit'
 import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
 import type { TerminalListEntry } from './terminal-list-model'
 
-export type PaneBindingAuditRequest = {
-  panes: { paneKey: string; ptyId: string }[]
-  statuses: PaneBindingStatusInput[]
+export type PaneBindingAuditStatus = {
+  paneKey: string
+  sessionId: string
+  /** The session's own on-disk record. Main reads its last turns from this and
+   *  matches those against each terminal's recording. */
+  transcriptPath?: string
 }
 
-/**
- * Text this turn put on the terminal it actually runs in.
- *
- * Why all four and not just the assistant message: `lastAssistantMessage` is
- * cleared the moment the next turn starts, which is exactly when a `working`
- * status is worth auditing - a check run then would have nothing to search for.
- * `lastCompletedAssistantMessage` survives that clear, the prompt is echoed by
- * the TUI, and a tool argument is printed with the tool call.
- */
-function evidenceFor(status: AgentStatusEntry): string[] {
-  const evidence: string[] = []
-  for (const candidate of [
-    status.lastAssistantMessage,
-    status.lastCompletedAssistantMessage,
-    status.prompt,
-    status.toolInput
-  ]) {
-    const text = candidate?.trim()
-    if (text) {
-      evidence.push(text)
-    }
-  }
-  return evidence
+export type PaneBindingAuditRequest = {
+  panes: { paneKey: string; ptyId: string }[]
+  statuses: PaneBindingAuditStatus[]
 }
 
 /**
@@ -40,6 +22,13 @@ function evidenceFor(status: AgentStatusEntry): string[] {
  * pane that never ran one has nothing to say. Why only statuses with a session
  * id: the correction binds that id to a terminal, so a status without one has
  * nothing to move.
+ *
+ * Why the status's own text is not sent as evidence: a pane holds one status, and
+ * its prompt, tool and message fields carry over from whatever reported there
+ * last. Several sessions report one pane key whenever a background-job host owns
+ * them, so that text can belong to a different session than the id beside it -
+ * and matching it points confidently at *that* session's terminal. The session's
+ * transcript is the only text that provably belongs to the session.
  */
 export function buildPaneBindingAuditRequest(input: {
   entries: readonly TerminalListEntry[]
@@ -60,7 +49,7 @@ export function buildPaneBindingAuditRequest(input: {
     paneKeys.add(entry.paneKey)
   }
 
-  const statuses: PaneBindingStatusInput[] = []
+  const statuses: PaneBindingAuditStatus[] = []
   for (const [paneKey, status] of Object.entries(input.agentStatusByPaneKey ?? {})) {
     // Why: a status on a pane this worktree does not list belongs to another
     // window's terminals; the recordings here cannot speak for it.
@@ -71,8 +60,8 @@ export function buildPaneBindingAuditRequest(input: {
     if (!sessionId) {
       continue
     }
-    const evidence = evidenceFor(status)
-    statuses.push({ paneKey, sessionId, ...(evidence.length > 0 ? { evidence } : {}) })
+    const transcriptPath = status.providerSession?.transcriptPath?.trim()
+    statuses.push({ paneKey, sessionId, ...(transcriptPath ? { transcriptPath } : {}) })
   }
   return { panes, statuses }
 }

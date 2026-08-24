@@ -39,7 +39,7 @@ export type AgentStatusApi = {
   /** Check every terminal's recorded output for statuses bound to the wrong pane. */
   auditPaneBindings: (args: {
     panes: { paneKey: string; ptyId: string }[]
-    statuses: { paneKey: string; sessionId: string; evidence?: readonly string[] }[]
+    statuses: { paneKey: string; sessionId: string; transcriptPath?: string }[]
   }) => Promise<
     {
       paneKey: string

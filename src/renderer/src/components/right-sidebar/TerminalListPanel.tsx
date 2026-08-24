@@ -189,6 +189,27 @@ export default function TerminalListPanel(): React.JSX.Element {
 }
 
 /**
+ * What the suggestion is based on, so it can be judged before it is taken.
+ *
+ * Why the matched text is in here: the audit picks a terminal by finding this
+ * session's own words in its recording, and a wrong pick is only recognisable by
+ * seeing which words those were.
+ */
+function rebindHint(finding: PaneBindingFinding, candidatePosition: string | undefined): string {
+  const hint = translate(
+    'components.terminalList.audit.rebindHint',
+    'This status looks like it belongs to terminal {position}. Move it there.'
+  ).replace('{position}', candidatePosition ?? '?')
+  const matched = finding.matchedText?.trim()
+  if (!matched) {
+    return hint
+  }
+  return `${hint}
+
+${translate('components.terminalList.audit.rebindMatch', 'Matched there:')} ${matched.slice(0, 80)}`
+}
+
+/**
  * The audit control and its last result.
  *
  * Why a manual run: reading every terminal's recorded output is a burst of file
@@ -279,10 +300,7 @@ function TerminalListRow({
           type="button"
           data-testid="terminal-list-rebind"
           className="mr-2 shrink-0 rounded border border-amber-500/60 px-1.5 py-0.5 text-[11px] text-amber-500 hover:bg-amber-500/10"
-          title={translate(
-            'components.terminalList.audit.rebindHint',
-            'This status looks like it belongs to terminal {position}. Move it there.'
-          ).replace('{position}', candidatePosition ?? '?')}
+          title={rebindHint(finding, candidatePosition)}
           onClick={() => {
             onApplyFinding(finding)
           }}

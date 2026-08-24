@@ -36,6 +36,8 @@ export type PaneBindingFinding = {
   candidatePaneKey: string
   candidateHits: number
   runnerUpHits: number
+  /** The run of text that decided it, so the suggestion can be checked before it is taken. */
+  matchedText?: string
 }
 
 /** Why: one stray mention (a path echoed in a shell, a log line) is not a session. */
@@ -55,6 +57,12 @@ const EVIDENCE_WINDOW_LENGTH = 20
 /** Why capped: evidence is bounded already, but a status carries four fields and
  *  every window costs a scan of every terminal's tail. */
 const EVIDENCE_MAX_WINDOWS = 24
+/** Why more than one turn has to land: a terminal that renders a session shows
+ *  turn after turn of it, while a job list shows one summary line per session -
+ *  so a single matching turn is exactly what a list of *other* sessions looks
+ *  like. Measured: one session's newest turn appeared in six terminals at once,
+ *  and only the terminal actually running it carried a second turn. */
+const MIN_MATCHED_TURNS = 2
 
 const ESC = String.fromCharCode(27)
 const BEL = String.fromCharCode(7)
@@ -90,19 +98,25 @@ function countOccurrences(haystack: string, needle: string): number {
   return count
 }
 
+/** One searchable window, and which turn it came from. */
+type EvidenceNeedle = { needle: string; turn: number }
+
 /** The searchable windows of each evidence string, dropping runs too short to mean anything. */
-function evidenceNeedles(evidence: readonly string[] | undefined): string[] {
-  const needles: string[] = []
-  for (const raw of evidence ?? []) {
-    const squashed = squashForBindingMatch(raw ?? '')
+function evidenceNeedles(evidence: readonly string[] | undefined): EvidenceNeedle[] {
+  const needles: EvidenceNeedle[] = []
+  const seen = new Set<string>()
+  const turns = evidence ?? []
+  for (let turn = 0; turn < turns.length; turn += 1) {
+    const squashed = squashForBindingMatch(turns[turn] ?? '')
     for (
       let start = 0;
       start + EVIDENCE_MIN_LENGTH <= squashed.length;
       start += EVIDENCE_WINDOW_LENGTH
     ) {
       const needle = squashed.slice(start, start + EVIDENCE_WINDOW_LENGTH)
-      if (!needles.includes(needle)) {
-        needles.push(needle)
+      if (!seen.has(needle)) {
+        seen.add(needle)
+        needles.push({ needle, turn })
       }
       if (needles.length >= EVIDENCE_MAX_WINDOWS) {
         return needles
@@ -112,48 +126,74 @@ function evidenceNeedles(evidence: readonly string[] | undefined): string[] {
   return needles
 }
 
-type PaneScore = { paneKey: string; idHits: number; evidenceHits: number; total: number }
+type PaneScore = {
+  paneKey: string
+  idHits: number
+  evidenceHits: number
+  /** How many distinct turns of this session the terminal carries. */
+  matchedTurns: number
+  total: number
+  matchedNeedle: string | null
+}
 
 function scorePane(
   tail: string,
   sessionId: string,
-  needles: readonly string[]
+  needles: readonly EvidenceNeedle[]
 ): Omit<PaneScore, 'paneKey'> {
   const idHits = countOccurrences(tail, sessionId)
   let evidenceHits = 0
-  for (const needle of needles) {
-    evidenceHits += countOccurrences(tail, needle)
+  let matchedNeedle: string | null = null
+  const matchedTurns = new Set<number>()
+  for (const entry of needles) {
+    const hits = countOccurrences(tail, entry.needle)
+    if (hits > 0) {
+      matchedTurns.add(entry.turn)
+      if (matchedNeedle === null) {
+        matchedNeedle = entry.needle
+      }
+    }
+    evidenceHits += hits
   }
-  return { idHits, evidenceHits, total: idHits + evidenceHits * EVIDENCE_WEIGHT }
+  return {
+    idHits,
+    evidenceHits,
+    matchedTurns: matchedTurns.size,
+    total: idHits + evidenceHits * EVIDENCE_WEIGHT,
+    matchedNeedle
+  }
 }
 
 /**
  * The one terminal the recording points at, or null when it points at none or
  * at several.
  *
- * Why two tiers: text the agent printed this turn appears in exactly one
- * terminal, so a single carrier of it decides on its own. Only when no evidence
- * lands anywhere does the id get a say, and then a terminal has to out-mention
- * every other by a clear margin.
+ * Why two tiers that never mix: a terminal running a session prints turn after
+ * turn of it, so carrying two of them is what tells a running session apart from
+ * a job list that shows one summary line each for many. Only when nothing carries
+ * two turns does the session id get a say, and then on its own count alone - a
+ * single matching turn must not be able to win by borrowing the id tier's
+ * threshold, which is exactly how a job list would win.
  */
 function pickWinner(
   scored: readonly PaneScore[]
 ): { best: PaneScore; runnerUpHits: number } | null {
-  const withEvidence = scored.filter((score) => score.evidenceHits > 0)
-  if (withEvidence.length === 1) {
-    const best = withEvidence[0]!
+  const carriers = scored.filter((score) => score.matchedTurns >= MIN_MATCHED_TURNS)
+  if (carriers.length === 1) {
+    const best = carriers[0]!
     const runnerUp = scored.find((score) => score.paneKey !== best.paneKey)
     return { best, runnerUpHits: runnerUp?.total ?? 0 }
   }
-  if (withEvidence.length > 1) {
+  if (carriers.length > 1) {
     return null
   }
-  const best = scored[0]
-  if (!best || best.total < MIN_CANDIDATE_HITS) {
+  const byId = [...scored].sort((a, b) => b.idHits - a.idHits)
+  const best = byId[0]
+  if (!best || best.idHits < MIN_CANDIDATE_HITS) {
     return null
   }
-  const runnerUpHits = scored[1]?.total ?? 0
-  if (best.total < runnerUpHits * WINNER_MARGIN + 1) {
+  const runnerUpHits = byId[1]?.idHits ?? 0
+  if (best.idHits < runnerUpHits * WINNER_MARGIN + 1) {
     return null
   }
   return { best, runnerUpHits }
@@ -200,7 +240,8 @@ export function auditPaneBindings(
       sessionId: status.sessionId,
       candidatePaneKey: winner.best.paneKey,
       candidateHits: winner.best.total,
-      runnerUpHits: winner.runnerUpHits
+      runnerUpHits: winner.runnerUpHits,
+      ...(winner.best.matchedNeedle ? { matchedText: winner.best.matchedNeedle } : {})
     })
   }
   return findings

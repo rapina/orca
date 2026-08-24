@@ -17,12 +17,19 @@ function entry(tabId: string, leafId: string | null, position: string): Terminal
   }
 }
 
-function status(paneKey: string, sessionId?: string, message?: string): AgentStatusEntry {
+function status(paneKey: string, sessionId?: string, transcriptPath?: string): AgentStatusEntry {
   return {
     paneKey,
     state: 'working',
-    ...(sessionId ? { providerSession: { key: 'session_id', id: sessionId } } : {}),
-    ...(message ? { lastAssistantMessage: message } : {})
+    ...(sessionId
+      ? {
+          providerSession: {
+            key: 'session_id',
+            id: sessionId,
+            ...(transcriptPath ? { transcriptPath } : {})
+          }
+        }
+      : {})
   } as AgentStatusEntry
 }
 
@@ -37,7 +44,7 @@ describe('buildPaneBindingAuditRequest', () => {
       entries: [entry('tabA', LEAF_A, '1.1'), entry('tabB', LEAF_B, '2.1')],
       layoutsByTabId: layouts,
       agentStatusByPaneKey: {
-        [`tabA:${LEAF_A}`]: status(`tabA:${LEAF_A}`, 'session-1', 'the answer'),
+        [`tabA:${LEAF_A}`]: status(`tabA:${LEAF_A}`, 'session-1', 'C:/transcripts/session-1.jsonl'),
         [`tabB:${LEAF_B}`]: status(`tabB:${LEAF_B}`)
       }
     })
@@ -47,33 +54,35 @@ describe('buildPaneBindingAuditRequest', () => {
       { paneKey: `tabB:${LEAF_B}`, ptyId: 'pty-b' }
     ])
     expect(request.statuses).toEqual([
-      { paneKey: `tabA:${LEAF_A}`, sessionId: 'session-1', evidence: ['the answer'] }
+      {
+        paneKey: `tabA:${LEAF_A}`,
+        sessionId: 'session-1',
+        transcriptPath: 'C:/transcripts/session-1.jsonl'
+      }
     ])
   })
 
-  // Why this is the working case, not an edge one: `lastAssistantMessage` is cleared
-  // the moment the next turn begins, and a `working` status is what the audit is run
-  // on. Without the other fields there would be nothing to search a recording for.
-  it('carries the fields that survive into the next turn', () => {
-    const working = {
+  // Why nothing else is sent: a pane holds one status and its prompt, tool and
+  // message fields carry over from whatever reported there last, so on a pane key
+  // several sessions share, that text can belong to a different session than the
+  // id beside it and would point straight at that session's terminal.
+  it('sends no text of its own, only the session and where its record lives', () => {
+    const noisy = {
       paneKey: `tabA:${LEAF_A}`,
       state: 'working',
       providerSession: { key: 'session_id', id: 'session-1' },
-      prompt: 'rebind the terminals',
-      lastCompletedAssistantMessage: 'the previous answer',
-      toolInput: 'src/shared/pane-binding-audit.ts'
+      prompt: 'a prompt that may belong to another session',
+      lastAssistantMessage: 'an answer that may belong to another session',
+      lastCompletedAssistantMessage: 'and so may this one',
+      toolInput: 'cd /some/shared/path && ls'
     } as unknown as AgentStatusEntry
     const request = buildPaneBindingAuditRequest({
       entries: [entry('tabA', LEAF_A, '1.1')],
       layoutsByTabId: layouts,
-      agentStatusByPaneKey: { [`tabA:${LEAF_A}`]: working }
+      agentStatusByPaneKey: { [`tabA:${LEAF_A}`]: noisy }
     })
 
-    expect(request.statuses[0]?.evidence).toEqual([
-      'the previous answer',
-      'rebind the terminals',
-      'src/shared/pane-binding-audit.ts'
-    ])
+    expect(request.statuses).toEqual([{ paneKey: `tabA:${LEAF_A}`, sessionId: 'session-1' }])
   })
 
   // Why: a tab restored but never mounted has no pty yet, so there is no
@@ -83,11 +92,12 @@ describe('buildPaneBindingAuditRequest', () => {
       entries: [entry('tabA', LEAF_A, '1.1'), entry('tabC', null, '3.1')],
       layoutsByTabId: layouts,
       agentStatusByPaneKey: {
-        'other:pane': status('other:pane', 'session-2')
+        [`tabA:${LEAF_A}`]: status(`tabA:${LEAF_A}`, 'session-1'),
+        [`tabB:${LEAF_B}`]: status(`tabB:${LEAF_B}`, 'session-2')
       }
     })
 
     expect(request.panes).toEqual([{ paneKey: `tabA:${LEAF_A}`, ptyId: 'pty-a' }])
-    expect(request.statuses).toEqual([])
+    expect(request.statuses).toEqual([{ paneKey: `tabA:${LEAF_A}`, sessionId: 'session-1' }])
   })
 })

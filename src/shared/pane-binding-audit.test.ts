@@ -6,6 +6,11 @@ const ESC = String.fromCharCode(27)
 const SESSION = '195d9e30-b33a-49cc-ad47-76f5fc3b1489'
 const OTHER_SESSION = '8cd64b19-47b1-4836-bb35-c6db195a7a20'
 
+/** Two turns of one session. The audit needs both: one turn is what a job list
+ *  shows for every session it lists, so it cannot tell them apart. */
+const TURN_ONE = '규약대로 worktree 생성 계획부터 조회하겠습니다'
+const TURN_TWO = '조건 셋을 규칙에 넣겠습니다. 먼저 계약부터 잡고 시작할게요.'
+
 function tailWith(id: string, times: number, extra = ''): string {
   return `${`session ${id} line\n`.repeat(times)}${extra}`
 }
@@ -71,14 +76,13 @@ describe('auditPaneBindings', () => {
     expect(findings).toEqual([])
   })
 
-  it('lets a distinctive turn line outweigh scattered id mentions', () => {
-    const evidence = '정리(#653)가 병합되면 이어서 하겠습니다. 계획 문서에 적어 뒀습니다.'
+  it('lets the terminal carrying the turns outweigh scattered id mentions', () => {
     const findings = auditPaneBindings(
-      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [evidence] }],
+      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [TURN_ONE, TURN_TWO] }],
       [
         { paneKey: 'tab1:leafA', tail: 'nothing\n' },
         { paneKey: 'tab2:leafB', tail: tailWith(SESSION, 4) },
-        { paneKey: 'tab3:leafC', tail: `${evidence}\n` }
+        { paneKey: 'tab3:leafC', tail: `${TURN_ONE}\n${TURN_TWO}\n` }
       ]
     )
 
@@ -98,17 +102,53 @@ describe('auditPaneBindings', () => {
   // in a real recording it appears nowhere. Measured on live terminals, three of
   // five held no id at all - an id-only audit reports nothing and looks healthy.
   it('finds the terminal from turn text when the id appears nowhere', () => {
-    const spoken = '규약대로 worktree 생성 계획부터 조회하겠습니다'
     const findings = auditPaneBindings(
-      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [spoken] }],
+      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [TURN_ONE, TURN_TWO] }],
       [
         { paneKey: 'tab1:leafA', tail: 'PS D:\\Workspace> \n' },
         { paneKey: 'tab2:leafB', tail: 'unrelated build output\n' },
-        { paneKey: 'tab3:leafC', tail: `${ESC}[38;5;250m${spoken}${ESC}[0m\n` }
+        {
+          paneKey: 'tab3:leafC',
+          tail: `${ESC}[38;5;250m${TURN_ONE}${ESC}[0m\n${TURN_TWO}\n`
+        }
       ]
     )
 
     expect(findings[0]?.candidatePaneKey).toBe('tab3:leafC')
+  })
+
+  // Why the finding carries it: the audit picks a terminal by finding this
+  // session's own words there, and a wrong pick is only recognisable by seeing
+  // which words those were - so the suggestion has to show them.
+  it('reports the text that decided it', () => {
+    const findings = auditPaneBindings(
+      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [TURN_ONE, TURN_TWO] }],
+      [
+        { paneKey: 'tab1:leafA', tail: 'idle shell\n' },
+        { paneKey: 'tab3:leafC', tail: `${TURN_ONE}\n${TURN_TWO}\n` }
+      ]
+    )
+
+    expect(findings[0]?.matchedText).toBeTruthy()
+    expect(TURN_ONE.replace(/\s+/g, '')).toContain(findings[0]?.matchedText)
+  })
+
+  // Why this rule exists: a terminal showing a job list carries one summary line
+  // for every session it lists, so a single matching turn is exactly what a list
+  // of other people's sessions looks like. Measured: one session's newest turn
+  // appeared in six terminals at once and only one of them was running it.
+  it('stays quiet when no terminal carries more than one turn', () => {
+    const findings = auditPaneBindings(
+      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [TURN_ONE, TURN_TWO] }],
+      [
+        { paneKey: 'tab1:leafA', tail: 'idle shell\n' },
+        { paneKey: 'tab2:leafB', tail: `${TURN_ONE}\n${TURN_ONE}\n${TURN_ONE}\n` },
+        { paneKey: 'tab3:leafC', tail: `${TURN_ONE}\n` },
+        { paneKey: 'tab4:leafD', tail: `${TURN_ONE}\n` }
+      ]
+    )
+
+    expect(findings).toEqual([])
   })
 
   // Why: a TUI hard-wraps at the terminal width, and Korean has no space at the
@@ -125,25 +165,10 @@ describe('auditPaneBindings', () => {
     const spoken = rows.join('')
     const rendered = rows.map((row) => `${ESC}[2m│${ESC}[0m ${row}\r\n`).join('')
     const findings = auditPaneBindings(
-      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [spoken] }],
+      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: [spoken, TURN_TWO] }],
       [
         { paneKey: 'tab1:leafA', tail: 'idle shell\n' },
-        { paneKey: 'tab3:leafC', tail: rendered }
-      ]
-    )
-
-    expect(findings[0]?.candidatePaneKey).toBe('tab3:leafC')
-  })
-
-  // Why: `lastAssistantMessage` is cleared when the next turn starts, which is
-  // exactly when a `working` status is worth auditing. The other fields carry it.
-  it('takes the first evidence that lands, not only the first offered', () => {
-    const carried = '착공 목표의 요약 문구 두 키를 넣고 안내 문구를 맞췄습니다'
-    const findings = auditPaneBindings(
-      [{ paneKey: 'tab1:leafA', sessionId: SESSION, evidence: ['', 'ok', carried] }],
-      [
-        { paneKey: 'tab1:leafA', tail: 'idle shell\n' },
-        { paneKey: 'tab3:leafC', tail: `${carried}\n` }
+        { paneKey: 'tab3:leafC', tail: `${rendered}${TURN_TWO}\n` }
       ]
     )
 
@@ -166,12 +191,11 @@ describe('auditPaneBindings', () => {
   // Why: the pane a status names is where the correction moves *from*; evidence
   // showing there means the binding is right and nothing should move.
   it('leaves a status alone when its own terminal carries the turn text', () => {
-    const spoken = '규약대로 worktree 생성 계획부터 조회하겠습니다'
     const findings = auditPaneBindings(
-      [{ paneKey: 'tab3:leafC', sessionId: SESSION, evidence: [spoken] }],
+      [{ paneKey: 'tab3:leafC', sessionId: SESSION, evidence: [TURN_ONE, TURN_TWO] }],
       [
-        { paneKey: 'tab3:leafC', tail: `${spoken}\n` },
-        { paneKey: 'tab1:leafA', tail: `${spoken}\n${spoken}\n` }
+        { paneKey: 'tab3:leafC', tail: `${TURN_ONE}\n` },
+        { paneKey: 'tab1:leafA', tail: `${TURN_ONE}\n${TURN_TWO}\n` }
       ]
     )
 
