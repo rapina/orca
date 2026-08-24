@@ -53,7 +53,7 @@ export function handleFocusTerminalPaneDetail(
   if (detail.flashFocusedPane) {
     const pane = manager.getPanes().find((candidate) => candidate.id === resolution.numericPaneId)
     if (pane) {
-      flashFocusedPaneRim(pane.container)
+      flashFocusedPaneRim(pane.container, detail.flashFocusedPaneTone)
     }
   }
   if (detail.ackPaneKeyOnSuccess) {

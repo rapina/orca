@@ -156,17 +156,31 @@
   opacity: 0.4 !important;
 }
 
+/* Why the tone sits on the pane and not on ::before: the pseudo-element reads the
+   custom property from its host, so a class can swap the colour without restating
+   the rim, its timing or its reduced-motion opt-out. */
+.pane.pane-focus-rim-flash {
+  --pane-focus-rim: var(--terminal-pane-locate);
+}
+
+/* Why amber: clicking an unread terminal in the list is what clears its unread, and
+   this rim is the only thing on screen that says so. Reusing the unread colour makes
+   it read as that mark leaving rather than as "here is the pane you jumped to". */
+.pane.pane-focus-rim-flash-unread {
+  --pane-focus-rim: var(--terminal-pane-unread);
+}
+
 .pane.pane-focus-rim-flash::before {
   content: '';
   position: absolute;
   inset: 1px;
   z-index: 30;
   pointer-events: none;
-  border: 1.5px solid color-mix(in srgb, var(--terminal-pane-locate) 68%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--pane-focus-rim) 68%, transparent);
   border-radius: 2px;
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--terminal-pane-locate) 34%, transparent),
-    0 0 18px color-mix(in srgb, var(--terminal-pane-locate) 36%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--pane-focus-rim) 34%, transparent),
+    0 0 18px color-mix(in srgb, var(--pane-focus-rim) 36%, transparent);
   animation: pane-focus-rim-flash 1.5s ease-out forwards;
 }
 

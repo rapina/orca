@@ -1,3 +1,4 @@
+import type { FocusedPaneFlashTone } from '@/components/terminal-pane/focused-pane-rim-flash'
 import type { TerminalPaneSplitSource } from '../../../shared/feature-education-telemetry'
 
 export const TOGGLE_TERMINAL_PANE_EXPAND_EVENT = 'orca-toggle-terminal-pane-expand'
@@ -36,6 +37,9 @@ export type FocusTerminalPaneDetail = {
   ackPaneKeyOnSuccess?: string
   /** Briefly lights the resolved pane rim after focus for click-to-locate flows. */
   flashFocusedPane?: boolean
+  /** Colour of that rim. Defaults to the locate blue; 'unread' says the click also
+   *  took the terminal's unread mark away, so the rim carries the unread amber. */
+  flashFocusedPaneTone?: FocusedPaneFlashTone
   /** Follow live agent output when activation is explicitly about that agent. */
   scrollToBottomIfOutputSinceLastView?: boolean
 }

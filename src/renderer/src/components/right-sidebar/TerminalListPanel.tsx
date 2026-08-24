@@ -125,7 +125,8 @@ export default function TerminalListPanel(): React.JSX.Element {
     (finding: PaneBindingFinding) => {
       transferAgentPaneAuthority({
         fromPaneKey: finding.paneKey,
-        toPaneKey: finding.candidatePaneKey
+        toPaneKey: finding.candidatePaneKey,
+        sessionId: finding.sessionId
       })
       setAudit((current) => ({
         ...current,
@@ -255,7 +256,10 @@ function TerminalListRow({
         onClick={() => {
           activateTabAndFocusPane(entry.tabId, entry.leafId, {
             ...(entry.paneKey ? { ackPaneKeyOnSuccess: entry.paneKey } : {}),
-            flashFocusedPane: true
+            flashFocusedPane: true,
+            // Why the tone: this click is what clears the unread, and the rim is
+            // the only place the terminal itself shows that it happened.
+            ...(entry.status === 'unread' ? { flashFocusedPaneTone: 'unread' as const } : {})
           })
           // Why: picking a row is an explicit choice of that terminal, which is what
           // dismisses unread. Focus alone does not, so the list clears it here.
