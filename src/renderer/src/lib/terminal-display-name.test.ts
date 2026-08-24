@@ -92,6 +92,21 @@ describe('resolveTerminalName', () => {
     expect(resolveTerminalName(state, TAB, LEAF_B)).toBe(spoken)
   })
 
+  // Why pinned: the tab title is whichever pane drove it, so a pane that falls all
+  // the way through to it wears its neighbour's name. A terminal reading as its own
+  // folder is wrong in a small way; reading as the terminal next to it is wrong in
+  // the way that made the list unusable.
+  it('wears its own folder rather than the tab’s name when it has nothing else', () => {
+    const state = {
+      ...sources({ entries: [entry(LEAF_B, 'working')] }),
+      paneTitlesByLeafId: { [LEAF_B]: '⠉ cozy-sandbox' },
+      tabTitle: 'homestead cleanup design clarification',
+      uninformativeTitles: new Set(['cozy-sandbox'])
+    }
+
+    expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('cozy-sandbox')
+  })
+
   // Why: an agent that does name its turn keeps naming it — this must not become a
   // rule that throws away the better title Claude already writes.
   it('keeps a window title that names a turn', () => {

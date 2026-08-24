@@ -47,9 +47,12 @@ function nameFromWindowTitle(
  * pane's own live title names what is actually running in it; the agent's reported
  * terminal title covers panes whose live title has not been recorded; and what the
  * agent was asked covers the agents that never name their turn in a window title at
- * all. The tab title comes last because every pane of a tab shares it — falling
- * back to it too early made a split's terminals all show the same name, following
- * whichever pane had focus.
+ * all.
+ *
+ * Why a folder-only title still beats the tab title: the tab title is whichever
+ * pane drove it, so borrowing it puts a *sibling's* name on this row — a terminal
+ * reading as the one next to it is worse than one reading as its own folder. The
+ * tab title is only for a pane that has no words of its own at all.
  */
 export function resolveTerminalName(
   sources: TerminalNameSources,
@@ -79,6 +82,11 @@ export function resolveTerminalName(
   const fromPrompt = status?.prompt ? deriveGeneratedTabTitle(status.prompt) : null
   if (fromPrompt) {
     return fromPrompt
+  }
+  const ownWords =
+    sources.paneTitlesByLeafId?.[leafId]?.trim() || status?.terminalTitle?.trim() || ''
+  if (ownWords) {
+    return stripLeadingAgentTitleDecoration(ownWords).trim() || ownWords
   }
   return sources.tabTitle
 }
