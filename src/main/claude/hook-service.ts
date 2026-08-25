@@ -76,8 +76,14 @@ function getManagedScript(
             `if not "%DEVIN_PROJECT_DIR%"=="" goto :${WINDOWS_HOOK_STDIN_DRAIN_LABEL}`
           ]
         : []),
+      // Why: a background-job host hands its own pane key to every session it runs, so
+      // the server has to be told when the key names the host's terminal, not this one's.
+      'set "ORCA_HOOK_PROCESS_HOST=terminal"',
+      'if defined CLAUDE_JOB_DIR set "ORCA_HOOK_PROCESS_HOST=background-job"',
       // Why: use curl.exe to avoid an extra PowerShell startup per hook.
-      buildWindowsAgentHookCurlPostCommand('claude'),
+      buildWindowsAgentHookCurlPostCommand('claude', {
+        extraFormFields: ['processHost=%ORCA_HOOK_PROCESS_HOST%']
+      }),
       'exit /b 0',
       ...buildWindowsHookStdinDrainEpilogue(),
       ''
@@ -103,6 +109,10 @@ function getManagedScript(
     'if [ -z "$ORCA_AGENT_HOOK_PORT" ] || [ -z "$ORCA_AGENT_HOOK_TOKEN" ] || [ -z "$ORCA_PANE_KEY" ]; then',
     '  exit 0',
     'fi',
+    // Why: a background-job host hands its own pane key to every session it runs, so
+    // the server has to be told when the key names the host's terminal, not this one's.
+    'hook_process_host=terminal',
+    'if [ -n "$CLAUDE_JOB_DIR" ]; then hook_process_host=background-job; fi',
     // Why: post form fields because path-bearing payloads are unsafe in hand-built JSON.
     // Why: pipe payload to curl stdin to keep large output off the command line.
     'printf \'%s\' "$payload" | curl -sS -X POST "http://127.0.0.1:${ORCA_AGENT_HOOK_PORT}/hook/claude" \\',
@@ -115,6 +125,7 @@ function getManagedScript(
     '  --data-urlencode "worktreeId=${ORCA_WORKTREE_ID}" \\',
     '  --data-urlencode "env=${ORCA_AGENT_HOOK_ENV}" \\',
     '  --data-urlencode "version=${ORCA_AGENT_HOOK_VERSION}" \\',
+    '  --data-urlencode "processHost=${hook_process_host}" \\',
     '  --data-urlencode "payload@-" >/dev/null 2>&1 || true',
     'exit 0',
     ''

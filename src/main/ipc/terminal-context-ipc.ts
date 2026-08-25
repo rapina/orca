@@ -6,6 +6,7 @@ import {
   extractPullRequestUrls,
   MAX_TERMINAL_PULL_REQUESTS,
   parseTranscriptWorkingDirectory,
+  PULL_REQUEST_CREATE_WINDOW_CHARS,
   worktreeNameFromPath,
   type TerminalContext
 } from '../../shared/terminal-context'
@@ -13,9 +14,11 @@ import {
 /** Why capped: the first sweep of a long-lived terminal would otherwise read the
  *  whole recording, and a link older than this is not what the row is for. */
 const FIRST_SCAN_BYTES = 4 * 1024 * 1024
-/** Why an overlap: a link written across two reads would be split in half and
- *  matched by neither. Longer than any pull request URL. */
-const SCAN_OVERLAP_BYTES = 256
+/** Why an overlap: a link only counts within a window after the create command
+ *  that printed it, so a read has to start far enough back to see that command.
+ *  Three bytes per character covers the widest UTF-8 the window can hold, and
+ *  the tail covers a link written across two reads. */
+const SCAN_OVERLAP_BYTES = PULL_REQUEST_CREATE_WINDOW_CHARS * 3 + 256
 /** Why enough: the working directory sits on every record, so the newest few suffice. */
 const TRANSCRIPT_TAIL_BYTES = 64 * 1024
 const MAX_TERMINALS = 200

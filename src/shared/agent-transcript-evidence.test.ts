@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { assistantTextsFromTranscriptTail } from './agent-transcript-evidence'
+import {
+  assistantTextsFromTranscriptTail,
+  userPromptTextsFromTranscriptTail
+} from './agent-transcript-evidence'
 
 function assistantLine(text: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -70,5 +73,43 @@ describe('assistantTextsFromTranscriptTail', () => {
     ].join('\n')
 
     expect(assistantTextsFromTranscriptTail(tail, 4)).toEqual([SECOND, FIRST])
+  })
+})
+
+describe('userPromptTextsFromTranscriptTail', () => {
+  // Why the transcript and not the status: the status prompt is whatever was last
+  // asked on that pane, which can be another session's.
+  it('returns what the person typed, newest first', () => {
+    const tail = [
+      '{"cut":',
+      userLine('rename the sockets'),
+      assistantLine(FIRST),
+      JSON.stringify({ message: { role: 'user', content: 'and add tests' } })
+    ].join('\n')
+
+    expect(userPromptTextsFromTranscriptTail(tail, 4)).toEqual([
+      'and add tests',
+      'rename the sockets'
+    ])
+  })
+
+  // Why: slash commands, injected context and tool results are user records too,
+  // but none of them is what the person asked.
+  it('skips command envelopes, tool results, meta and sidechain records', () => {
+    const tail = [
+      '{"cut":',
+      userLine('the real prompt'),
+      userLine('<command-name>/clear</command-name>'),
+      JSON.stringify({
+        message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] }
+      }),
+      JSON.stringify({ isMeta: true, message: { role: 'user', content: 'meta words here' } }),
+      JSON.stringify({
+        isSidechain: true,
+        message: { role: 'user', content: 'a subagent brief' }
+      })
+    ].join('\n')
+
+    expect(userPromptTextsFromTranscriptTail(tail, 4)).toEqual(['the real prompt'])
   })
 })

@@ -1,6 +1,11 @@
 import { open, stat } from 'node:fs/promises'
 import { ipcMain } from 'electron'
-import { assistantTextsFromTranscriptTail } from '../../shared/agent-transcript-evidence'
+import {
+  assistantTextsFromTranscriptTail,
+  userPromptTextsFromTranscriptTail,
+  type AgentSessionTurn
+} from '../../shared/agent-transcript-evidence'
+import { registerAgentSessionForkParentIpcHandlers } from './agent-session-fork-parent-ipc'
 
 /** Why this large: a busy transcript's tail is mostly tool results, and what is
  *  wanted is the last thing the agent actually said. */
@@ -28,16 +33,19 @@ async function readTail(path: string, tailBytes: number): Promise<string | null>
 }
 
 /**
- * The last thing one agent session said, for a person to recognise it by.
+ * What one agent session was asked and last said, for a person to recognise it by.
  *
  * Why read the transcript instead of showing what the pane's status holds: a pane
  * holds one status, and its prompt and message fields carry over from whatever
  * reported there last. Several sessions report one pane key whenever a
  * background-job host owns them, so that text can belong to a different session
  * than the one being named - which is precisely the confusion this text exists to
- * settle. A transcript belongs to one session by construction.
+ * settle. A transcript belongs to one session by construction. The prompt comes
+ * from the same place for the same reason.
  */
-export async function readAgentSessionTurn(transcriptPath: string): Promise<string | null> {
+export async function readAgentSessionTurn(
+  transcriptPath: string
+): Promise<AgentSessionTurn | null> {
   if (!transcriptPath.toLowerCase().endsWith('.jsonl')) {
     return null
   }
@@ -45,14 +53,21 @@ export async function readAgentSessionTurn(transcriptPath: string): Promise<stri
   if (!tail) {
     return null
   }
-  const [newest] = assistantTextsFromTranscriptTail(tail, 1)
-  if (!newest) {
+  const [reply] = assistantTextsFromTranscriptTail(tail, 1)
+  const [prompt] = userPromptTextsFromTranscriptTail(tail, 1)
+  if (!reply && !prompt) {
     return null
   }
-  return newest.slice(0, MAX_TURN_LENGTH)
+  return {
+    prompt: prompt ? prompt.slice(0, MAX_TURN_LENGTH) : null,
+    reply: reply ? reply.slice(0, MAX_TURN_LENGTH) : null
+  }
 }
 
 export function registerAgentSessionTurnIpcHandlers(): void {
+  // Why here: the fork-parent read is the other transcript read a person's move
+  // relies on, and agent-hooks.ts has no room for one more registration line.
+  registerAgentSessionForkParentIpcHandlers()
   ipcMain.removeHandler('agentStatus:readSessionTurn')
   ipcMain.handle('agentStatus:readSessionTurn', async (_event, value: unknown) => {
     const transcriptPath =

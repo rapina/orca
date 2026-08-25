@@ -11,8 +11,8 @@ import { isExplicitAgentStatusFresh } from './agent-status'
 import { resolveTerminalName } from './terminal-display-name'
 import { paneHasUnreadActivity, type PaneUnreadMaps } from './terminal-unread'
 
-/** The three buckets the terminal list groups by, in display order. */
-export type TerminalListStatus = 'unread' | 'working' | 'idle'
+/** The four buckets the terminal list groups by, in display order. */
+export type TerminalListStatus = 'question' | 'unread' | 'working' | 'idle'
 
 export type TerminalListEntry = {
   /** Null for a tab whose layout has not been serialized yet (activate the tab only). */
@@ -25,7 +25,12 @@ export type TerminalListEntry = {
   status: TerminalListStatus
 }
 
-const STATUS_RANK: Record<TerminalListStatus, number> = { unread: 0, working: 1, idle: 2 }
+const STATUS_RANK: Record<TerminalListStatus, number> = {
+  question: 0,
+  unread: 1,
+  working: 2,
+  idle: 3
+}
 
 function leafIdsInOrder(node: TerminalPaneLayoutNode | null | undefined): string[] {
   if (!node) {
@@ -37,20 +42,32 @@ function leafIdsInOrder(node: TerminalPaneLayoutNode | null | undefined): string
 }
 
 /**
- * Why permission folds into 'working': the list has three buckets, and a turn
- * waiting on the user is still a turn in progress — the unread bell is what
- * marks "this one needs you", not the run state.
+ * Why a question is its own bucket, above everything: a turn waiting on the user
+ * goes nowhere until they answer, so it outranks even the bell of a finished
+ * terminal. Why blocked folds into it: a permission prompt is a question too -
+ * the agent asked and stopped.
  */
 function agentStatusToListStatus(
   entry: AgentStatusEntry | undefined,
   now: number
-): TerminalListStatus {
+): 'question' | 'working' | 'idle' {
   if (!entry || !isExplicitAgentStatusFresh(entry, now, AGENT_STATUS_STALE_AFTER_MS)) {
     return 'idle'
   }
-  return entry.state === 'working' || entry.state === 'blocked' || entry.state === 'waiting'
-    ? 'working'
-    : 'idle'
+  if (entry.state === 'blocked' || entry.state === 'waiting') {
+    return 'question'
+  }
+  return entry.state === 'working' ? 'working' : 'idle'
+}
+
+function listStatusOf(
+  agentStatus: 'question' | 'working' | 'idle',
+  unread: boolean
+): TerminalListStatus {
+  if (agentStatus === 'question') {
+    return 'question'
+  }
+  return unread ? 'unread' : agentStatus
 }
 
 /**
@@ -109,17 +126,18 @@ export type TerminalListInput = PaneUnreadMaps & {
 }
 
 /**
- * Rows for agents that name a terminal this workspace no longer has.
+ * Rows for agents that name no terminal this workspace draws.
  *
- * Why they need a row at all: a hook reports the pane key its process was born
- * with, and a background-job host hands that key to every session it owns. When
- * the terminal that started the host is closed, its key stops matching any pane
- * and every one of those agents reports somewhere that is not drawn — the turn
- * runs with no sign of it anywhere on screen. A row is also the only way to reach
- * the move that fixes it.
+ * Why they need a row at all: a background job is given a row of its own, keyed
+ * by its session id under a tab of the workspace it runs in, because the pane
+ * key its hook reports is the terminal that started its host and not one it was
+ * ever in. The same happens to an agent whose terminal was closed under it. In
+ * both cases the turn runs with no sign of it anywhere on screen unless it is
+ * listed here, and the row is the only way to reach the move that binds it to a
+ * terminal.
  *
- * Why only while running: a finished agent on a pane that no longer exists is
- * nothing to act on, and would sit in the list forever. This row leaves by itself.
+ * Why only while running, asking, or unread: an idle agent that has been seen is
+ * nothing to act on, and a row that never leaves would silt up the list.
  */
 function appendUnattachedAgents(
   ranked: { entry: TerminalListEntry; tabIndex: number; paneIndex: number }[],
@@ -131,7 +149,9 @@ function appendUnattachedAgents(
     if (listedPaneKeys.has(paneKey)) {
       continue
     }
-    if (agentStatusToListStatus(entry, input.now) !== 'working') {
+    const agentStatus = agentStatusToListStatus(entry, input.now)
+    const unread = paneHasUnreadActivity(input, paneKey)
+    if (agentStatus === 'idle' && !unread) {
       continue
     }
     const parsed = parsePaneKey(paneKey)
@@ -162,7 +182,7 @@ function appendUnattachedAgents(
           parsed.tabId,
           parsed.leafId
         ),
-        status: 'working'
+        status: listStatusOf(agentStatus, unread)
       },
       tabIndex,
       paneIndex: Number.MAX_SAFE_INTEGER
@@ -171,9 +191,9 @@ function appendUnattachedAgents(
 }
 
 /**
- * One row per terminal, sorted unread → working → idle. Ties keep tab order and
- * then pane order inside the tab, so the list only reorders when a terminal
- * actually changes bucket.
+ * One row per terminal, sorted question → unread → working → idle. Ties keep tab
+ * order and then pane order inside the tab, so the list only reorders when a
+ * terminal actually changes bucket.
  */
 export function buildTerminalListEntries(input: TerminalListInput): TerminalListEntry[] {
   const ranked: { entry: TerminalListEntry; tabIndex: number; paneIndex: number }[] = []
@@ -203,13 +223,13 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
 
     leafIds.forEach((leafId, paneIndex) => {
       const paneKey = isTerminalLeafId(leafId) ? makePaneKey(tab.id, leafId) : null
-      const status: TerminalListStatus =
-        paneKey && paneHasUnreadActivity(input, paneKey)
-          ? 'unread'
-          : agentStatusToListStatus(
-              paneKey ? input.agentStatusByPaneKey?.[paneKey] : undefined,
-              input.now
-            )
+      const status = listStatusOf(
+        agentStatusToListStatus(
+          paneKey ? input.agentStatusByPaneKey?.[paneKey] : undefined,
+          input.now
+        ),
+        Boolean(paneKey && paneHasUnreadActivity(input, paneKey))
+      )
       ranked.push({
         entry: {
           paneKey,

@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { resolveMovedAgentPaneKey } from '@/store/slices/agent-pane-authority'
+import { isBackgroundJobPaneKey } from '@/lib/agent-status-owner-pane'
 import { resolveCommittedTitleAgentType } from '@/lib/pane-agent-evidence'
 import { getRepoMapFromState, getWorktreeMapFromState } from '@/store/selectors'
 import { playDesktopNotificationSound } from '@/lib/desktop-notification-sound'
@@ -157,9 +158,13 @@ export function dispatchTerminalNotification(
       // Why: delayed completion hooks from a closed split pane can arrive while
       // another pane in the tab is still live; stale leaf completions must not
       // create unread state or OS notifications.
-      const isCurrentPane = hasLivePty
-        ? isCurrentLivePaneKey(state, worktreeId, completionPaneKey)
-        : isCurrentKnownPaneKey(state, worktreeId, completionPaneKey)
+      // Why a job's own row passes: it has no leaf to be current, and the unread it
+      // takes here is the only sign the job finished.
+      const isCurrentPane =
+        isBackgroundJobPaneKey(state.agentStatusByPaneKey, completionPaneKey) ||
+        (hasLivePty
+          ? isCurrentLivePaneKey(state, worktreeId, completionPaneKey)
+          : isCurrentKnownPaneKey(state, worktreeId, completionPaneKey))
       if (!tabId || !isCurrentPane) {
         return
       }

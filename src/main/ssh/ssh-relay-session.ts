@@ -1508,6 +1508,8 @@ export class SshRelaySession {
         providerSessionOnly?: unknown
         shedFields?: unknown
         claudeRunningNonAgentTask?: unknown
+        processHost?: unknown
+        cwd?: unknown
         payload?: unknown
       }
       if (typeof envelope.paneKey !== 'string') {
@@ -1545,6 +1547,9 @@ export class SshRelaySession {
             typeof envelope.claudeRunningNonAgentTask === 'boolean'
               ? envelope.claudeRunningNonAgentTask
               : undefined,
+          // Why passed as-is: ingestRemote re-checks both at the trust boundary.
+          processHost: envelope.processHost,
+          cwd: envelope.cwd,
           payload: envelope.payload
         },
         this.targetId

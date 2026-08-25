@@ -104,9 +104,9 @@ describe('agents on a terminal that is gone', () => {
     expect(orphan?.name).toBe('Rename the held tool sockets')
   })
 
-  // Why only while running: a finished agent on a pane that is gone is nothing to
-  // act on, and a row that never leaves would silt up the list.
-  it('leaves out an agent that has finished', () => {
+  // Why only while running, asking, or unread: a finished agent that has been seen
+  // is nothing to act on, and a row that never leaves would silt up the list.
+  it('leaves out an agent that has finished and been seen', () => {
     const dead = makePaneKey('tab-1', DEAD_LEAF)
     const entries = buildTerminalListEntries(
       input({
@@ -117,6 +117,30 @@ describe('agents on a terminal that is gone', () => {
     )
 
     expect(entries.some((entry) => entry.paneKey === dead)).toBe(false)
+  })
+
+  // Why: a background job gets a row of its own, keyed by its session, and the
+  // unread it leaves there when it finishes is the only sign that it did.
+  it('keeps a finished job listed while its unread is unseen, and asks ahead of it', () => {
+    const finished = makePaneKey('tab-1', DEAD_LEAF)
+    const asking = makePaneKey('tab-1', '55555555-5555-4555-8555-555555555555')
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'a tab')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A]) },
+        agentStatusByPaneKey: {
+          [finished]: agentEntry(finished, 'done'),
+          [asking]: agentEntry(asking, 'waiting')
+        },
+        unreadAgentCompletionPanes: { [finished]: true }
+      })
+    )
+
+    expect(entries.map((entry) => [entry.paneKey, entry.status, entry.position])).toEqual([
+      [asking, 'question', '1.-'],
+      [finished, 'unread', '1.-'],
+      [makePaneKey('tab-1', LEAF_A), 'idle', '1.1']
+    ])
   })
 
   // Why: a pane key from a tab this workspace does not have belongs to another
@@ -190,7 +214,30 @@ describe('buildTerminalListEntries', () => {
     ])
   })
 
-  it('treats a waiting turn as working and a stale entry as idle', () => {
+  // Why a question outranks the bell: a turn waiting on the user goes nowhere
+  // until they answer; a finished terminal can wait a moment longer.
+  it('orders a question ahead of unread, even on an unread pane', () => {
+    const askingKey = makePaneKey('tab-1', LEAF_A)
+    const unreadKey = makePaneKey('tab-1', LEAF_B)
+    const askingUnreadKey = makePaneKey('tab-1', LEAF_C)
+
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'shell')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_B, LEAF_A, LEAF_C]) },
+        agentStatusByPaneKey: {
+          [askingKey]: agentEntry(askingKey, 'waiting'),
+          [askingUnreadKey]: agentEntry(askingUnreadKey, 'blocked')
+        },
+        unreadAgentCompletionPanes: { [unreadKey]: true, [askingUnreadKey]: true }
+      })
+    )
+
+    expect(entries.map((entry) => entry.status)).toEqual(['question', 'question', 'unread'])
+    expect(entries.map((entry) => entry.paneKey)).toEqual([askingKey, askingUnreadKey, unreadKey])
+  })
+
+  it('treats a waiting turn as a question and a stale entry as idle', () => {
     const waitingKey = makePaneKey('tab-1', LEAF_A)
     const staleKey = makePaneKey('tab-1', LEAF_B)
     const stale = agentEntry(staleKey, 'working')
@@ -211,7 +258,7 @@ describe('buildTerminalListEntries', () => {
       })
     )
 
-    expect(entries.map((entry) => entry.status)).toEqual(['working', 'idle'])
+    expect(entries.map((entry) => entry.status)).toEqual(['question', 'idle'])
   })
 
   // Why: the list is sorted by status, so a row's number is the only thing left

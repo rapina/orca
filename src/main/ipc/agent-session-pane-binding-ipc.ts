@@ -15,7 +15,9 @@ import { isValidPaneKey } from '../agent-hooks/server'
  * Why next to the hook state and not in the workspace session: this is what a
  * hook's pane key means, not what the window looks like.
  */
-const MAX_BINDINGS = 256
+// Why this many: sessions seen running in a terminal record their home here too, so
+// the hand-made corrections for background jobs must not be the ones evicted first.
+const MAX_BINDINGS = 1024
 
 let cache: Record<string, string> | null = null
 let writing: Promise<void> = Promise.resolve()

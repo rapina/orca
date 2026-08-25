@@ -103,6 +103,10 @@ export type AgentHookRelayEnvelope = {
   isReplay?: boolean
   /** Claude background-work evidence for input-interrupt inference on the receiving host. */
   claudeRunningNonAgentTask?: boolean
+  /** Whether `paneKey` is the session's own terminal or only its background-job host's. */
+  processHost?: 'terminal' | 'background-job'
+  /** Directory the hook reported, so a background job can be placed in its own workspace. */
+  cwd?: string
   /** Forwarded from the agent CLI POST body. The relay default is `remote`,
    *  which marks transport location rather than dev/prod build env. */
   env?: string

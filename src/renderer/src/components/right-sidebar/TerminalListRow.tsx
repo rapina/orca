@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AgentQuestionIcon } from '@/components/AgentQuestionIcon'
 import { AgentWorkingSpinner } from '@/components/AgentWorkingSpinner'
 import { translate } from '@/i18n/i18n'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
@@ -20,6 +21,10 @@ export type PendingMove = {
 }
 
 function TerminalStatusIcon({ status }: { status: TerminalListStatus }): React.JSX.Element {
+  if (status === 'question') {
+    // Why the same glyph as the tab strip: one question mark means one thing everywhere.
+    return <AgentQuestionIcon className="size-3 shrink-0" />
+  }
   if (status === 'unread') {
     return <FilledBellIcon className="size-3 shrink-0 text-amber-500" />
   }
@@ -30,6 +35,9 @@ function TerminalStatusIcon({ status }: { status: TerminalListStatus }): React.J
 }
 
 export function statusLabel(status: TerminalListStatus): string {
+  if (status === 'question') {
+    return translate('components.terminalList.status.question', 'Waiting for your answer')
+  }
   if (status === 'unread') {
     return translate('components.terminalList.status.unread', 'Unread')
   }

@@ -305,9 +305,16 @@ export function registerAppHandlers(store: Store, options: RegisterAppHandlersOp
 
   registerMacSymbolicHotkeysProbeHandler(readCommandStdout)
 
-  ipcMain.handle('app:setUnreadDockBadgeCount', (_event, count: number) => {
-    setUnreadDockBadgeCount(Number.isFinite(count) ? count : 0)
-  })
+  ipcMain.handle(
+    'app:setUnreadDockBadgeCount',
+    (_event, count: number, attention?: { questions?: unknown }) => {
+      const questions = attention?.questions
+      setUnreadDockBadgeCount(
+        Number.isFinite(count) ? count : 0,
+        typeof questions === 'number' && Number.isFinite(questions) ? questions : 0
+      )
+    }
+  )
 
   ipcMain.handle('app:getFloatingTerminalCwd', (_event, args?: FloatingTerminalCwdRequest) =>
     resolveFloatingTerminalCwd(store, args)

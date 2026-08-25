@@ -241,12 +241,14 @@ describe('hasUnreadAgentCompletionForTerminalTab', () => {
 })
 
 describe('resolveTerminalTabAttentionBadge', () => {
-  it('prefers unread, then working, then permission, then done', () => {
-    // Why: a tab holds several terminals, so one still working must not hide a
-    // sibling that finished unseen — the bell is the ask, the spinner is progress.
+  it('prefers a question, then unread, then working, then done', () => {
+    // Why: a turn waiting on the user goes nowhere until they answer, so it outranks
+    // even a sibling's bell; and a tab holds several terminals, so one still working
+    // must not hide a sibling that finished unseen — the bell is the ask, the
+    // spinner is progress.
     expect(resolveTerminalTabAttentionBadge({ status: 'working', hasUnread: true })).toBe('unread')
     expect(resolveTerminalTabAttentionBadge({ status: 'permission', hasUnread: true })).toBe(
-      'unread'
+      'permission'
     )
     expect(resolveTerminalTabAttentionBadge({ status: 'working', hasUnread: false })).toBe(
       'working'

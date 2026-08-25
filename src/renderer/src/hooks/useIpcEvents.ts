@@ -156,10 +156,11 @@ import { titleHasAgentName } from '../../../shared/agent-detection'
 import { isDecorativeAgentTitleFrameChange } from '../../../shared/agent-decorative-title-signature'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { resolveTerminalWorktreeRoute } from '@/lib/terminal-worktree-route'
+import { hydrateAgentSessionPaneBindings } from '@/store/slices/agent-pane-authority'
 import {
-  hydrateAgentSessionPaneBindings,
-  resolveAgentPaneAuthorityKey
-} from '@/store/slices/agent-pane-authority'
+  resolveAgentStatusOwner,
+  settleLearnedAgentSessionHome
+} from '@/lib/agent-status-owner-pane'
 import { paneIsInALayout } from '@/store/slices/agent-status'
 import type {
   AgentStatusBatchTransaction,
@@ -321,11 +322,11 @@ function isAgentStatusForRecentlyClosedTab(
     | 'tabsByWorktree'
     | 'terminalLayoutsByTabId'
   >,
-  paneKey: string,
-  sessionId?: string,
+  // Why the owner and not the hook's key: bindings and a job's own row move a status
+  // off the pane its hook names, and the retirement checks must follow it there.
+  ownerPaneKey: string,
   state?: string
 ): boolean {
-  const ownerPaneKey = resolveAgentPaneAuthorityKey(paneKey, sessionId)
   if (store.recentlyRetiredAgentStatusPaneKeys?.[ownerPaneKey] === true) {
     if (state === 'done') {
       // Why: a finished turn arriving after the pane closed is that pane's tail,
@@ -3218,17 +3219,17 @@ export function useIpcEvents(): void {
       if (!store.workspaceSessionReady) {
         return 'dropped'
       }
-      if (
-        isAgentStatusForRecentlyClosedTab(store, data.paneKey, data.providerSession?.id, data.state)
-      ) {
+      // Why resolved first: a hand-made binding, a remembered terminal or a row of a
+      // background job's own all move a status off the pane key its hook reports.
+      // Everything this function derives - the unread a finished turn leaves, tab
+      // attribution, retirement checks - has to land on the same pane the status
+      // row does, or the row moves and its unread stays behind on the terminal the
+      // agent was never in.
+      const owner = resolveAgentStatusOwner(store, data)
+      if (isAgentStatusForRecentlyClosedTab(store, owner.paneKey, data.state)) {
         return 'dropped'
       }
-      // Why the session id: a hand-made binding moves one agent session off the
-      // pane key its hook reports. Everything this function derives - the unread
-      // a finished turn leaves, tab attribution, retirement checks - has to land
-      // on the same pane the status row does, or the row moves and its unread
-      // stays behind on the terminal the agent was never in.
-      const paneKey = resolveAgentPaneAuthorityKey(data.paneKey, data.providerSession?.id)
+      const paneKey = owner.paneKey
       const ownerTabId = parsePaneKey(paneKey)?.tabId ?? data.tabId
       const payload = normalizeAgentStatusPayload({
         state: data.state,
@@ -3293,6 +3294,12 @@ export function useIpcEvents(): void {
         owningWorktreeId !== undefined &&
         data.state !== 'done'
       ) {
+        exists = true
+      }
+      // Why no wait here: a row of a job's own, or a terminal a session was bound to,
+      // is not a pane that is still mounting. A finished job keeps its row too - the
+      // unread it leaves there is the whole point of the row.
+      if (!exists && owner.sessionRouted && owningWorktreeId !== undefined) {
         exists = true
       }
       if (!exists) {
@@ -3436,7 +3443,13 @@ export function useIpcEvents(): void {
         return 'dropped'
       }
       const terminalTitle = resolveAgentStatusTerminalTitle(statusPayload, title)
-      const statusWorktreeId = data.worktreeId ?? owningWorktreeId
+      // Why the owner's workspace first for a routed session: the hook's worktree id
+      // and terminal identity are the host's, which can be another workspace entirely.
+      const statusWorktreeId = owner.sessionRouted
+        ? (owningWorktreeId ?? data.worktreeId)
+        : (data.worktreeId ?? owningWorktreeId)
+      const terminalHandle = owner.sessionRouted ? undefined : data.terminalHandle
+      const launchToken = owner.sessionRouted ? undefined : data.launchToken
       const update: AgentStatusUpdate = {
         paneKey,
         payload: statusPayloadWithProvenance,
@@ -3448,16 +3461,28 @@ export function useIpcEvents(): void {
         routing: {
           tabId: ownerTabId,
           worktreeId: statusWorktreeId,
-          terminalHandle: data.terminalHandle,
+          terminalHandle,
           ...(ownershipConnectionId !== undefined ? { connectionId: ownershipConnectionId } : {})
         },
         metadata:
-          data.providerSession || data.launchToken
+          data.providerSession || launchToken
             ? {
                 ...(data.providerSession ? { providerSession: data.providerSession } : {}),
-                ...(data.launchToken ? { launchToken: data.launchToken } : {})
+                ...(launchToken ? { launchToken } : {})
               }
             : undefined
+      }
+      const settleOwner = (): void => {
+        if (owner.homeLearned) {
+          settleLearnedAgentSessionHome(useAppStore, {
+            sessionId: owner.homeLearned.sessionId,
+            paneKey,
+            previousPaneKey: owner.homeLearned.previousPaneKey,
+            ...(data.providerSession?.transcriptPath
+              ? { transcriptPath: data.providerSession.transcriptPath }
+              : {})
+          })
+        }
       }
       const applyPostCommitNotification = (): void => {
         if (options?.replay !== true && statusWorktreeId) {
@@ -3478,6 +3503,7 @@ export function useIpcEvents(): void {
           return 'dropped'
         }
         options.batch.notificationEffects.push(applyPostCommitNotification)
+        options.batch.notificationEffects.push(settleOwner)
         if (
           terminalTitle &&
           shouldApplyResolvedAgentTerminalTitleToTab(store, paneKey, title, terminalTitle)
@@ -3506,6 +3532,7 @@ export function useIpcEvents(): void {
         )
         applyResolvedAgentTerminalTitleToTab(useAppStore.getState(), paneKey, title, terminalTitle)
         applyPostCommitNotification()
+        settleOwner()
       }
       return 'applied'
     }

@@ -9,6 +9,7 @@ import {
   type TerminalListEntry
 } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
+import type { AgentSessionTurn } from '../../../../shared/agent-transcript-evidence'
 import { uninformativeTerminalTitles } from '../../../../shared/terminal-context'
 import { EMPTY_TABS } from '../sidebar/WorktreeCardHelpers'
 import { type PendingMove, TerminalListRow } from './TerminalListRow'
@@ -196,13 +197,13 @@ function MoveSubjectCard({
   move: PendingMove
   onCancel: () => void
 }): React.JSX.Element {
-  const [spokenTurn, setSpokenTurn] = useState<string | null>(null)
+  const [turn, setTurn] = useState<AgentSessionTurn | null>(null)
   const [loaded, setLoaded] = useState(false)
   const transcriptPath = move.transcriptPath
 
   useEffect(() => {
     let cancelled = false
-    setSpokenTurn(null)
+    setTurn(null)
     setLoaded(false)
     if (!transcriptPath) {
       setLoaded(true)
@@ -210,9 +211,9 @@ function MoveSubjectCard({
     }
     void window.api?.agentStatus
       ?.readSessionTurn?.({ transcriptPath })
-      .then((text) => {
+      .then((result) => {
         if (!cancelled) {
-          setSpokenTurn(text ?? null)
+          setTurn(result ?? null)
           setLoaded(true)
         }
       })
@@ -225,6 +226,11 @@ function MoveSubjectCard({
       cancelled = true
     }
   }, [transcriptPath])
+
+  // Why the transcript's prompt over the status's: the status prompt is whatever
+  // was last asked on that pane, which can be another session's; the transcript
+  // is this session's alone. The status prompt is only a stand-in while reading.
+  const prompt = turn?.prompt ?? move.prompt
 
   return (
     <div
@@ -252,11 +258,11 @@ function MoveSubjectCard({
       </div>
       {/* Why both lines: the prompt is what you asked it and the reply is what you
           watched it say — either one can be what you recognise it by. */}
-      {move.prompt ? (
-        <div className="line-clamp-2 text-[11px] text-foreground">{`> ${move.prompt}`}</div>
+      {prompt ? (
+        <div className="line-clamp-2 text-[11px] text-foreground">{`> ${prompt}`}</div>
       ) : null}
       <div className="line-clamp-3 text-[11px] text-foreground/80">
-        {spokenTurn ??
+        {turn?.reply ??
           (loaded
             ? translate(
                 'components.terminalList.move.noTurn',

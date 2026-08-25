@@ -5,6 +5,7 @@ import type {
 } from '../../shared/agent-status-types'
 import type { AgentInterruptInferenceRequest } from '../../shared/agent-interrupt-intent'
 import type { AgentQuestionAnsweredInferenceRequest } from '../../shared/agent-question-answered-intent'
+import type { AgentSessionTurn } from '../../shared/agent-transcript-evidence'
 import type { ComputerAwakeStatus } from '../../shared/computer-awake-mode'
 
 export type AgentStatusApi = {
@@ -36,9 +37,15 @@ export type AgentStatusApi = {
   retirePaneAuthority: (paneKey: string) => void
   /** Move hook authority when a live pane is detached into another tab. */
   transferPaneAuthority: (args: { fromPaneKey: string; toPaneKey: string; ptyId?: string }) => void
-  /** The last thing one session said, read from its own transcript, so a person
-   *  can tell which agent a status belongs to before moving it. */
-  readSessionTurn: (args: { transcriptPath: string }) => Promise<string | null>
+  /** What one session was asked and last said, read from its own transcript, so a
+   *  person can tell which agent a status belongs to before moving it. */
+  readSessionTurn: (args: { transcriptPath: string }) => Promise<AgentSessionTurn | null>
+  /** The session a transcript was forked from, so the fork's terminal can take the
+   *  parent job's notifications too. Null when it was not forked. */
+  readSessionForkParent: (args: {
+    transcriptPath: string
+    sessionId: string
+  }) => Promise<string | null>
   /** Remember which terminal an agent session was bound to, across restarts. */
   bindSessionPane: (args: { sessionId: string; paneKey: string }) => void
   listSessionPaneBindings: () => Promise<Record<string, string>>

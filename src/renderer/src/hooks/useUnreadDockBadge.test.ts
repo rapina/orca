@@ -51,7 +51,7 @@ describe('useUnreadDockBadge', () => {
   it('clears the app badge', () => {
     clearUnreadDockBadgeCount()
 
-    expect(setUnreadDockBadgeCount).toHaveBeenCalledWith(0)
+    expect(setUnreadDockBadgeCount).toHaveBeenCalledWith(0, { questions: 0 })
   })
 
   it('treats badge clearing as best-effort', async () => {
@@ -60,7 +60,31 @@ describe('useUnreadDockBadge', () => {
     clearUnreadDockBadgeCount()
     await Promise.resolve()
 
-    expect(setUnreadDockBadgeCount).toHaveBeenCalledWith(0)
+    expect(setUnreadDockBadgeCount).toHaveBeenCalledWith(0, { questions: 0 })
+  })
+
+  // Why: a turn waiting on the user is the taskbar's first job, and it is not an
+  // unread — it has to reach the badge on its own.
+  it('counts agents waiting on an answer', () => {
+    renderHook(() => useUnreadDockBadge())
+    const paneKey = 'tab-1:11111111-1111-4111-8111-111111111111'
+
+    act(() =>
+      useAppStore.setState({
+        agentStatusByPaneKey: {
+          [paneKey]: {
+            state: 'waiting',
+            prompt: 'pick one',
+            updatedAt: Date.now(),
+            stateStartedAt: Date.now(),
+            paneKey,
+            stateHistory: []
+          }
+        }
+      })
+    )
+
+    expect(setUnreadDockBadgeCount).toHaveBeenLastCalledWith(0, { questions: 1 })
   })
 
   it('no-ops when the preload API is unavailable', () => {
@@ -110,17 +134,17 @@ describe('useUnreadDockBadge', () => {
 
     act(() => useAppStore.setState({ worktreesByRepo: { repo: [worktree] } }))
     expect(getUnreadBadgeCount).toHaveBeenCalledTimes(2)
-    expect(setUnreadDockBadgeCount).toHaveBeenLastCalledWith(0)
+    expect(setUnreadDockBadgeCount).toHaveBeenLastCalledWith(0, { questions: 0 })
 
     act(() => useAppStore.setState({ tabsByWorktree: { [worktree.id]: [tab] } }))
     expect(getUnreadBadgeCount).toHaveBeenCalledTimes(3)
 
     act(() => useAppStore.setState({ unreadTerminalTabs: { [tab.id]: true } }))
     expect(getUnreadBadgeCount).toHaveBeenCalledTimes(4)
-    expect(setUnreadDockBadgeCount).toHaveBeenLastCalledWith(1)
+    expect(setUnreadDockBadgeCount).toHaveBeenLastCalledWith(1, { questions: 0 })
 
     act(() => useAppStore.setState({ unreadTerminalTabs: {} }))
     expect(getUnreadBadgeCount).toHaveBeenCalledTimes(5)
-    expect(setUnreadDockBadgeCount).toHaveBeenLastCalledWith(0)
+    expect(setUnreadDockBadgeCount).toHaveBeenLastCalledWith(0, { questions: 0 })
   })
 })

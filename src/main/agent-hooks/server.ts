@@ -333,6 +333,16 @@ function sanitizeHydratedEntry(
     providerSession,
     providerSessionOnly: providerSessionOnly ? true : undefined,
     retainedForLiveness: retainedForLiveness ? true : undefined,
+    // Why kept: a replayed background job must not land on its host's pane just
+    // because the app restarted between two of its hooks.
+    processHost:
+      record.processHost === 'terminal' || record.processHost === 'background-job'
+        ? record.processHost
+        : undefined,
+    cwd:
+      typeof record.cwd === 'string' && record.cwd.length > 0 && record.cwd.length <= 1024
+        ? record.cwd
+        : undefined,
     payload,
     receivedAt,
     stateStartedAt
@@ -409,6 +419,8 @@ function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentSta
     ...(entry.providerSessionOnly ? { providerSessionOnly: true } : {}),
     ...(entry.promptInteractionKey ? { promptInteractionKey: entry.promptInteractionKey } : {}),
     ...(entry.restoredUnconfirmed ? { restoredUnconfirmed: true } : {}),
+    ...(entry.processHost ? { processHost: entry.processHost } : {}),
+    ...(entry.cwd ? { cwd: entry.cwd } : {}),
     ...entry.payload
   }
 }
@@ -1891,6 +1903,8 @@ export class AgentHookServer {
       /** Payload fields the relay dropped to fit an oversized frame; validated below. */
       shedFields?: unknown
       claudeRunningNonAgentTask?: unknown
+      processHost?: unknown
+      cwd?: unknown
       payload: unknown
     },
     connectionId: string
@@ -2068,6 +2082,15 @@ export class AgentHookServer {
       claudeRunningNonAgentTask:
         typeof envelope.claudeRunningNonAgentTask === 'boolean'
           ? envelope.claudeRunningNonAgentTask
+          : undefined,
+      // Why re-checked: the relay is a trust boundary; an unknown host value must not reach routing.
+      processHost:
+        envelope.processHost === 'terminal' || envelope.processHost === 'background-job'
+          ? envelope.processHost
+          : undefined,
+      cwd:
+        typeof envelope.cwd === 'string' && envelope.cwd.length > 0 && envelope.cwd.length <= 1024
+          ? envelope.cwd
           : undefined,
       payload: normalizedPayload
     }

@@ -46,8 +46,9 @@ export type AppApi = {
   getKeyboardInputSourceId: () => Promise<string | null>
   /** Physical Mission Control chords before layout resolution. */
   getMacCapturedDigitRowChords: () => Promise<MacCapturedDigitRowChord[]>
-  /** Updates the macOS Dock unread badge. No-op on Windows/Linux. */
-  setUnreadDockBadgeCount: (count: number) => Promise<void>
+  /** Updates the macOS Dock badge and the Windows taskbar overlay/flash. `questions`
+   *  is how many agents wait on an answer; it outranks unread on the overlay. */
+  setUnreadDockBadgeCount: (count: number, attention?: { questions: number }) => Promise<void>
   /** Resolves the launch directory for global Floating Terminal tabs. */
   getFloatingTerminalCwd: (args?: FloatingTerminalCwdRequest) => Promise<string>
   /** Resolves Orca's app-owned directory for auto-created Floating Workspace

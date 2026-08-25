@@ -1,14 +1,21 @@
 import { app, BrowserWindow } from 'electron'
-import { createUnreadTaskbarOverlayIcon } from '../tray/tray-attention-icon'
+import {
+  createQuestionTaskbarOverlayIcon,
+  createUnreadTaskbarOverlayIcon
+} from '../tray/tray-attention-icon'
 
 let unreadCount = 0
+/** Agents waiting on an answer. Why apart from unread: it outranks unread on every surface. */
+let questionCount = 0
 
 function applyDockBadge(): void {
   if (process.platform !== 'darwin') {
     return
   }
 
-  const label = unreadCount === 0 ? '' : unreadCount > 99 ? '99+' : String(unreadCount)
+  // Why both: the badge counts what needs the user, and a question needs them at least as much.
+  const total = unreadCount + questionCount
+  const label = total === 0 ? '' : total > 99 ? '99+' : String(total)
   app.dock?.setBadge(label)
 }
 
@@ -48,6 +55,9 @@ function followFocusForTaskbarFlash(window: BrowserWindow): void {
  * which is why it is not the only cue) and a flashing button, which works in
  * every mode. Flashing is suppressed while the window is focused — the user is
  * already looking at the unread terminal's app.
+ *
+ * Why a question takes the overlay: there is one corner, and a turn waiting on an
+ * answer goes nowhere until the user comes — the unread bell can wait behind it.
  */
 function applyWindowsTaskbarUnread(): void {
   if (process.platform !== 'win32') {
@@ -60,26 +70,40 @@ function applyWindowsTaskbarUnread(): void {
   }
   followFocusForTaskbarFlash(window)
 
+  const hasQuestion = questionCount > 0
   const hasUnread = unreadCount > 0
   try {
     window.setOverlayIcon(
-      hasUnread ? createUnreadTaskbarOverlayIcon() : null,
-      hasUnread ? `${unreadCount} unread` : ''
+      hasQuestion
+        ? createQuestionTaskbarOverlayIcon()
+        : hasUnread
+          ? createUnreadTaskbarOverlayIcon()
+          : null,
+      hasQuestion
+        ? `${questionCount} waiting for an answer`
+        : hasUnread
+          ? `${unreadCount} unread`
+          : ''
     )
   } catch {
     // Taskbar chrome is best-effort; a failed overlay must not break the write.
   }
   // Why: flashFrame(true) keeps flashing until the window is activated, so it is
   // only started while the window is unfocused and always stopped once read.
-  window.flashFrame(hasUnread && !window.isFocused())
+  window.flashFrame((hasUnread || hasQuestion) && !window.isFocused())
 }
 
-export function setUnreadDockBadgeCount(count: number): void {
+function sanitizeCount(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
+}
+
+export function setUnreadDockBadgeCount(count: number, questions = 0): void {
   if (process.platform !== 'darwin' && process.platform !== 'win32') {
     return
   }
 
-  unreadCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0
+  unreadCount = sanitizeCount(count)
+  questionCount = sanitizeCount(questions)
 
   applyDockBadge()
   applyWindowsTaskbarUnread()

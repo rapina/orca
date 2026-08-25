@@ -15,6 +15,13 @@ export { AGENT_STATUS_MAX_FIELD_LENGTH } from './agent-status-field-normalizatio
 
 export const AGENT_STATUS_STATES = ['working', 'blocked', 'waiting', 'done'] as const
 export type AgentStatusState = (typeof AGENT_STATUS_STATES)[number]
+/**
+ * Who runs the process a hook came from. A background-job host stamps the pane
+ * key of the terminal that started it onto every session it runs, so a key it
+ * reports names the host's terminal, not the session's. Absent from hooks
+ * installed before this field existed, and from agents that have no such host.
+ */
+export type AgentProcessHost = 'terminal' | 'background-job'
 // Why: agent types aren't a fixed set (custom agents exist); any non-empty string is
 // accepted — these well-known names are just a convenience union for pattern-matching.
 export type WellKnownAgentType =
@@ -246,6 +253,10 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   promptInteractionKey?: string
   /** See AgentStatusEntry.restoredUnconfirmed — hydrated nonterminal provenance. */
   restoredUnconfirmed?: boolean
+  /** Whether `paneKey` is the terminal this session runs in, or only its host's. */
+  processHost?: AgentProcessHost
+  /** Directory the hook reported; places a background job in the workspace it really runs in. */
+  cwd?: string
 }
 
 /** Wire shape for ordinary pane teardown or a stamped SSH disconnect batch. */

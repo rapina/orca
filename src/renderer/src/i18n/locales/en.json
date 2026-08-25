@@ -15582,6 +15582,7 @@
     "terminalList": {
       "title": "Terminals",
       "status": {
+        "question": "Waiting for your answer",
         "unread": "Unread",
         "working": "Working",
         "idle": "Idle"

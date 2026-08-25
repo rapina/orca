@@ -326,6 +326,8 @@ export class RelayAgentHookServer {
       claudeRunningNonAgentTask: event.claudeRunningNonAgentTask,
       ...(event.providerSession ? { providerSession: event.providerSession } : {}),
       ...(event.providerSessionOnly ? { providerSessionOnly: true } : {}),
+      ...(event.processHost ? { processHost: event.processHost } : {}),
+      ...(event.cwd ? { cwd: event.cwd } : {}),
       isReplay: options.isReplay === true ? true : undefined,
       env,
       version,

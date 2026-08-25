@@ -39,7 +39,12 @@ export type AgentPaneAuthorityTransfer = {
  * being corrected; only the session itself may move.
  */
 const ownerPaneKeyBySessionId = new Map<string, string>()
-const MAX_AGENT_SESSION_PANE_BINDINGS = 256
+// Why this many: every session that runs in a terminal records its home here now, so
+// the hand-made corrections for background jobs must not be the ones evicted first.
+const MAX_AGENT_SESSION_PANE_BINDINGS = 1024
+
+/** Sessions whose transcript head was already asked for a fork parent this run. */
+const forkParentCheckedSessionIds = new Set<string>()
 
 /**
  * Sessions that were moved off a pane, kept by the pane they left.
@@ -78,6 +83,23 @@ export function bindAgentSessionPane(
     }
     ownerPaneKeyBySessionId.delete(oldestSessionId)
   }
+  return true
+}
+
+/** The terminal a session was bound to, by hand or by having been seen running there. */
+export function getAgentSessionPaneBinding(sessionId: string): string | undefined {
+  return ownerPaneKeyBySessionId.get(sessionId)
+}
+
+/**
+ * True the first time a session is named, so its transcript is read for a fork
+ * parent once per run rather than on every hook it sends.
+ */
+export function claimAgentSessionForkParentCheck(sessionId: string): boolean {
+  if (forkParentCheckedSessionIds.has(sessionId)) {
+    return false
+  }
+  forkParentCheckedSessionIds.add(sessionId)
   return true
 }
 
@@ -249,4 +271,5 @@ export function resetAgentPaneAuthorityAliasesForTests(): void {
   aliasesByPhysicalPaneKey.clear()
   ownerPaneKeyBySessionId.clear()
   movedSessionsBySourcePaneKey.clear()
+  forkParentCheckedSessionIds.clear()
 }

@@ -20,6 +20,7 @@ import { isAbsolute, join } from 'node:path'
 import {
   AGENT_MODEL_MAX_LENGTH,
   normalizeAgentStatusPayload,
+  type AgentProcessHost,
   type AgentStatusState,
   type AgentSubagentSnapshot,
   type ParsedAgentStatusPayload
@@ -360,6 +361,10 @@ export type AgentHookEventPayload = {
   isReplay?: boolean
   /** Transport-only Claude background-work evidence used to reject false input-based interrupts. */
   claudeRunningNonAgentTask?: boolean
+  /** Whether `paneKey` is the terminal the session runs in, or only its host's (see AgentProcessHost). */
+  processHost?: AgentProcessHost
+  /** Directory the hook reported, so a background job can be placed in its own workspace. */
+  cwd?: string
   payload: ParsedAgentStatusPayload
 }
 
@@ -4274,6 +4279,9 @@ export function normalizeHookPayload(
   const launchToken = readStringField(record, 'launchToken')
 
   const hookPayloadRecord = hookPayload as Record<string, unknown>
+  const processHost = readAgentProcessHost(record)
+  const cwd =
+    source === 'claude' ? readBoundedStringField(hookPayloadRecord, 'cwd', 1024) : undefined
   if (source === 'claude') {
     state.claudeUnconfirmedRestoredStatusPaneKeys.delete(paneKey)
   }
@@ -4508,9 +4516,25 @@ export function normalizeHookPayload(
           : {}),
         ...(providerSession ? { providerSession } : {}),
         ...(providerSessionOnly ? { providerSessionOnly: true } : {}),
+        ...(processHost ? { processHost } : {}),
+        ...(cwd ? { cwd } : {}),
         payload: transportPayload
       }
     : null
+}
+
+function readAgentProcessHost(record: Record<string, unknown>): AgentProcessHost | undefined {
+  const value = readStringField(record, 'processHost')
+  return value === 'terminal' || value === 'background-job' ? value : undefined
+}
+
+function readBoundedStringField(
+  record: Record<string, unknown>,
+  key: string,
+  maxLength: number
+): string | undefined {
+  const value = readStringField(record, key)
+  return value && value.length <= maxLength ? value : undefined
 }
 
 // ─── URL routing ────────────────────────────────────────────────────
