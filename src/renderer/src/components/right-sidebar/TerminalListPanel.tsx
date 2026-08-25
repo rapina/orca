@@ -164,6 +164,9 @@ export default function TerminalListPanel(): React.JSX.Element {
             {...(entry.paneKey && contexts[entry.paneKey]
               ? { context: contexts[entry.paneKey] }
               : {})}
+            {...(entry.leafId && layoutsByTabId[entry.tabId]?.ptyIdsByLeafId?.[entry.leafId]
+              ? { ptyId: layoutsByTabId[entry.tabId]?.ptyIdsByLeafId?.[entry.leafId] }
+              : {})}
             canMove={Boolean(
               entry.paneKey && agentStatusByPaneKey[entry.paneKey]?.providerSession?.id
             )}

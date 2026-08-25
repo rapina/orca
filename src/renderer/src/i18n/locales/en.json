@@ -15599,6 +15599,11 @@
       "menu": {
         "markUnread": "Mark as unread",
         "moveAgent": "Connect these notifications to another terminal…"
+      },
+      "link": {
+        "openInOrca": "Open in Orca",
+        "openInBrowser": "Open in browser",
+        "copy": "Copy link"
       }
     },
     "terminalUnread": {

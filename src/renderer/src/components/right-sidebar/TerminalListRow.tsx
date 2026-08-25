@@ -9,6 +9,7 @@ import type { TerminalContext } from '../../../../shared/terminal-context'
 import { FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
 import { closeAllContextMenus, TerminalListRowMenu } from './TerminalListRowMenu'
 import { TerminalRowContext } from './terminal-row-context'
+import { TERMINAL_LIST_LINK_ATTR } from './terminal-list-link-marker'
 
 /** What a pending move is taking, so a row can tell whether it is the source. */
 export type PendingMove = {
@@ -50,6 +51,7 @@ export function statusLabel(status: TerminalListStatus): string {
 export function TerminalListRow({
   entry,
   context,
+  ptyId,
   canMove,
   pendingMove,
   onBeginMove,
@@ -57,6 +59,8 @@ export function TerminalListRow({
 }: {
   entry: TerminalListEntry
   context?: TerminalContext
+  /** The terminal's pty; tells a link under the row whether its terminal is local or remote. */
+  ptyId?: string
   canMove: boolean
   pendingMove: PendingMove | null
   onBeginMove: (entry: TerminalListEntry) => void
@@ -78,6 +82,11 @@ export function TerminalListRow({
       // to act on, so it stops here and only puts the menu up.
       onContextMenuCapture={(event) => {
         if (!entry.paneKey) {
+          return
+        }
+        // Why: a link under the row has a menu of its own — where to open it — and
+        // the row's menu must not take that click from it.
+        if ((event.target as HTMLElement | null)?.closest?.(`[${TERMINAL_LIST_LINK_ATTR}]`)) {
           return
         }
         event.preventDefault()
@@ -135,7 +144,7 @@ export function TerminalListRow({
           <span className="truncate">{entry.name}</span>
         </button>
       </div>
-      {context ? <TerminalRowContext context={context} /> : null}
+      {context ? <TerminalRowContext context={context} {...(ptyId ? { ptyId } : {})} /> : null}
       <TerminalListRowMenu
         open={menuOpen}
         menuPoint={menuPoint}

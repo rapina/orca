@@ -363,3 +363,8 @@ git push origin custom
   `isBackgroundJobPaneKey`로 우회한다. 이 우회가 없으면 끝난 잡이 언리드를 못 남긴다.
 - 세션 라우팅된 상태에는 `terminalHandle`·`launchToken`을 싣지 않는다 — 둘 다 데몬을 띄운
   터미널 것이라 잠든 에이전트 복원이나 보존 행 매칭을 엉뚱한 터미널에 건다.
+- 행 아래 PR 칩은 **터미널 링크와 같은 라우팅**을 탄다(`terminal-row-link-open.ts` →
+  `openHttpLink`): 설정 `openLinksInApp`, Shift+Ctrl/⌘ 반전, 첫 클릭의 선택 프롬프트까지. 우클릭
+  메뉴가 두 목적지를 이름으로 준다. **행의 우클릭은 캡처 단계**라 칩의 메뉴보다 먼저 뛴다 — 칩에
+  `data-terminal-list-link`를 달고 행이 그걸 보면 물러난다(`terminal-list-link-marker.ts`). 이 마커를
+  칩 모듈에서 내보내면 행 테스트가 칩의 의존성(다이얼로그·런타임 스트림)을 통째로 끌어온다.
