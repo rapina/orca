@@ -21,9 +21,20 @@ vi.mock('../sidebar/WorktreeCardHelpers', () => ({ FilledBellIcon: () => null })
 vi.mock('./terminal-row-context', () => ({ TerminalRowContext: () => null }))
 vi.mock('./TerminalListRowMenu', () => ({
   closeAllContextMenus: vi.fn(),
-  TerminalListRowMenu: ({ open, onMarkUnread }: { open: boolean; onMarkUnread: () => void }) => (
-    <div data-testid="row-menu" data-open={String(open)}>
+  TerminalListRowMenu: ({
+    open,
+    canDetach,
+    onMarkUnread,
+    onDetach
+  }: {
+    open: boolean
+    canDetach?: boolean
+    onMarkUnread: () => void
+    onDetach?: () => void
+  }) => (
+    <div data-testid="row-menu" data-open={String(open)} data-can-detach={String(canDetach)}>
       <button type="button" data-testid="row-menu-mark-unread" onClick={onMarkUnread} />
+      <button type="button" data-testid="row-menu-detach" onClick={onDetach} />
     </div>
   )
 }))
@@ -43,7 +54,7 @@ function entry(): TerminalListEntry {
   }
 }
 
-function renderRow(): void {
+function renderRow(extra: { canDetach?: boolean; onDetach?: () => void } = {}): void {
   render(
     <TerminalListRow
       entry={entry()}
@@ -51,6 +62,7 @@ function renderRow(): void {
       pendingMove={null}
       onBeginMove={vi.fn()}
       onCompleteMove={vi.fn()}
+      {...extra}
     />
   )
 }
@@ -95,5 +107,18 @@ describe('TerminalListRow right-click', () => {
     fireEvent.click(screen.getByTestId('row-menu-mark-unread'))
 
     expect(markTerminalPaneUnread).toHaveBeenCalledWith(PANE)
+  })
+
+  // Why: a background job bound to this terminal keeps writing its state over the
+  // terminal's own; the menu is the one place the binding can be undone.
+  it('offers to give a bound agent its own row back', () => {
+    const onDetach = vi.fn()
+    renderRow({ canDetach: true, onDetach })
+
+    fireEvent.contextMenu(screen.getByTestId('terminal-list-row'))
+    expect(screen.getByTestId('row-menu').dataset.canDetach).toBe('true')
+    fireEvent.click(screen.getByTestId('row-menu-detach'))
+
+    expect(onDetach).toHaveBeenCalledWith(expect.objectContaining({ paneKey: PANE }))
   })
 })

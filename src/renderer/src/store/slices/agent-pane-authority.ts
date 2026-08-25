@@ -92,6 +92,19 @@ export function getAgentSessionPaneBinding(sessionId: string): string | undefine
 }
 
 /**
+ * Forget where a session was bound, so a background job goes back to a row of its
+ * own. Returns the pane it was bound to, if any.
+ */
+export function unbindAgentSessionPane(sessionId: string): string | undefined {
+  const previous = ownerPaneKeyBySessionId.get(sessionId)
+  ownerPaneKeyBySessionId.delete(sessionId)
+  for (const moved of movedSessionsBySourcePaneKey.values()) {
+    moved.delete(sessionId)
+  }
+  return previous
+}
+
+/**
  * True the first time a session is named, so its transcript is read for a fork
  * parent once per run rather than on every hook it sends.
  */

@@ -1,4 +1,4 @@
-import { BellDot, CornerUpRight } from 'lucide-react'
+import { BellDot, CornerUpRight, Unlink } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,15 +32,20 @@ export function TerminalListRowMenu({
   open,
   menuPoint,
   canMove,
+  canDetach = false,
   onOpenChange,
   onBeginMove,
+  onDetach,
   onMarkUnread
 }: {
   open: boolean
   menuPoint: { x: number; y: number }
   canMove: boolean
+  /** The agent here was bound to this terminal by hand; it can be given its own row back. */
+  canDetach?: boolean
   onOpenChange: (open: boolean) => void
   onBeginMove: () => void
+  onDetach?: () => void
   onMarkUnread: () => void
 }): React.JSX.Element {
   return (
@@ -74,6 +79,22 @@ export function TerminalListRowMenu({
             {translate(
               'components.terminalList.menu.moveAgent',
               'Connect these notifications to another terminal…'
+            )}
+          </DropdownMenuItem>
+        ) : null}
+        {canDetach && onDetach ? (
+          // Why: a background job bound here keeps writing its state over this
+          // terminal's own; undoing the binding sends it back to a row of its own.
+          <DropdownMenuItem
+            data-testid="terminal-list-menu-detach-agent"
+            onSelect={() => {
+              onDetach()
+            }}
+          >
+            <Unlink className="size-4" />
+            {translate(
+              'components.terminalList.menu.detachAgent',
+              'Give these notifications a row of their own'
             )}
           </DropdownMenuItem>
         ) : null}

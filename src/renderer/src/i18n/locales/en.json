@@ -15598,7 +15598,8 @@
       },
       "menu": {
         "markUnread": "Mark as unread",
-        "moveAgent": "Connect these notifications to another terminal…"
+        "moveAgent": "Connect these notifications to another terminal…",
+        "detachAgent": "Give these notifications a row of their own"
       },
       "link": {
         "openInOrca": "Open in Orca",

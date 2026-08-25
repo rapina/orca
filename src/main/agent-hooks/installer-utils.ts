@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto'
 import type { AgentHookSource } from '../../shared/agent-hook-relay'
 import { grantDirAcl, isPermissionError } from '../win32-utils'
 import { POSIX_HOOK_STDIN_DRAIN_COMMAND } from './hook-stdin-contract'
+import { replaceScriptSync } from './managed-hook-script-refresh'
 import { resolveHooksJsonWritePath } from './hook-config-write-path'
 import { writeRollingFileBackup } from '../rolling-file-backup'
 
@@ -287,7 +288,7 @@ export function writeManagedScript(scriptPath: string, content: string): void {
     if (process.platform !== 'win32') {
       chmodSync(tmpPath, 0o755)
     }
-    renameSync(tmpPath, scriptPath)
+    replaceScriptSync(tmpPath, scriptPath, content)
   } finally {
     if (existsSync(tmpPath)) {
       try {

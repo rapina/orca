@@ -83,6 +83,7 @@ import {
   type AgentProviderSessionMetadata
 } from '../../shared/agent-session-resume'
 import { isCommandCodeNewTurnWhileWorking } from '../../shared/command-code-turn-boundary'
+import { noteStaleClaudeHookScript } from './stale-hook-script-refresh'
 
 export type { AgentHookSource }
 
@@ -2177,6 +2178,11 @@ export class AgentHookServer {
         trackEmptyPaneKeyHook(body)
         const aliasedBody = this.normalizeHookBodyPaneKeyAlias(body)
         const normalized = this.normalizeLocalHookPayload(source, aliasedBody)
+        if (source === 'claude' && normalized.event && !normalized.event.processHost) {
+          // Why: a Claude hook that does not say who runs it came from a script older
+          // than this build writes - the start-up replacement did not land.
+          noteStaleClaudeHookScript()
+        }
         const statusDisposition = normalized.event
           ? this.getAgentStatusDisposition(normalized.event.paneKey, {
               hookEventName: normalized.event.hookEventName,

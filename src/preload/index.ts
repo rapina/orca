@@ -4888,6 +4888,9 @@ const api = {
       transcriptPath: string
       sessionId: string
     }): Promise<string | null> => ipcRenderer.invoke('agentStatus:readSessionForkParent', args),
+    unbindSessionPane: (args: { sessionId: string }): void => {
+      ipcRenderer.send('agentStatus:unbindSessionPane', args)
+    },
     bindSessionPane: (args: { sessionId: string; paneKey: string }): void => {
       ipcRenderer.send('agentStatus:bindSessionPane', args)
     },

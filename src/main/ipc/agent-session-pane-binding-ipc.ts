@@ -89,6 +89,22 @@ function registerAgentSessionPaneBindingIpcHandlers(): void {
       persist(bindings)
     })
   })
+
+  ipcMain.removeAllListeners('agentStatus:unbindSessionPane')
+  ipcMain.on('agentStatus:unbindSessionPane', (_event, value: unknown) => {
+    const args = value as Record<string, unknown> | null
+    const sessionId = typeof args?.sessionId === 'string' ? args.sessionId : ''
+    if (sessionId.length === 0) {
+      return
+    }
+    void load().then((bindings) => {
+      if (!(sessionId in bindings)) {
+        return
+      }
+      delete bindings[sessionId]
+      persist(bindings)
+    })
+  })
 }
 
 // Why registered on import: agent-hooks.ts sits at its line limit.

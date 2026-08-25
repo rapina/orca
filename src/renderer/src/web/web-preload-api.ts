@@ -951,6 +951,7 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       readSessionForkParent: async () => null,
       readTerminalContexts: async () => [],
       bindSessionPane: () => {},
+      unbindSessionPane: () => {},
       listSessionPaneBindings: async () => ({})
     },
     mobile: {

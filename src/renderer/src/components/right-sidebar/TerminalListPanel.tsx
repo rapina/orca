@@ -9,6 +9,10 @@ import {
   type TerminalListEntry
 } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
+import {
+  getAgentSessionPaneBinding,
+  unbindAgentSessionPane
+} from '@/store/slices/agent-pane-authority'
 import type { AgentSessionTurn } from '../../../../shared/agent-transcript-evidence'
 import { uninformativeTerminalTitles } from '../../../../shared/terminal-context'
 import { EMPTY_TABS } from '../sidebar/WorktreeCardHelpers'
@@ -120,6 +124,27 @@ export default function TerminalListPanel(): React.JSX.Element {
     [agentStatusByPaneKey]
   )
 
+  // Why dropped and not moved: the row the job borrowed goes back to its terminal
+  // now, and the job's next hook draws its own row - a finished job has nothing
+  // left to draw, and the person detaching it has seen it.
+  const detachSession = useCallback(
+    (entry: TerminalListEntry) => {
+      const status = entry.paneKey ? agentStatusByPaneKey[entry.paneKey] : undefined
+      const sessionId = status?.providerSession?.id?.trim()
+      if (!entry.paneKey || !sessionId) {
+        return
+      }
+      unbindAgentSessionPane(sessionId)
+      window.api?.agentStatus?.unbindSessionPane?.({ sessionId })
+      const state = useAppStore.getState()
+      if (state.agentStatusByPaneKey[entry.paneKey]?.providerSession?.id === sessionId) {
+        state.dropAgentStatus(entry.paneKey)
+        state.clearTerminalPaneUnread(entry.paneKey)
+      }
+    },
+    [agentStatusByPaneKey]
+  )
+
   const completeMove = useCallback(
     (toPaneKey: string) => {
       if (!pendingMove || toPaneKey === pendingMove.paneKey) {
@@ -170,13 +195,28 @@ export default function TerminalListPanel(): React.JSX.Element {
             canMove={Boolean(
               entry.paneKey && agentStatusByPaneKey[entry.paneKey]?.providerSession?.id
             )}
+            canDetach={isBoundHere(entry, agentStatusByPaneKey)}
             pendingMove={pendingMove}
             onBeginMove={beginMove}
+            onDetach={detachSession}
             onCompleteMove={completeMove}
           />
         ))}
       </div>
     </div>
+  )
+}
+
+/** The agent on this row was bound to this terminal, so it can be unbound. */
+function isBoundHere(
+  entry: TerminalListEntry,
+  agentStatusByPaneKey: Record<string, { providerSession?: { id?: string } }>
+): boolean {
+  const sessionId = entry.paneKey
+    ? agentStatusByPaneKey[entry.paneKey]?.providerSession?.id?.trim()
+    : undefined
+  return Boolean(
+    entry.paneKey && sessionId && getAgentSessionPaneBinding(sessionId) === entry.paneKey
   )
 }
 

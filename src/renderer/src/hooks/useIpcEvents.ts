@@ -3544,7 +3544,9 @@ export function useIpcEvents(): void {
     // Why Promise.resolve wraps it: the api surface is stubbed in places that hand
     // back a plain value, and a hydration that throws here takes the whole effect
     // — every IPC subscription below it — down with it.
-    void Promise.resolve(window.api?.agentStatus?.listSessionPaneBindings?.() ?? {})
+    const sessionPaneBindingsHydrated = Promise.resolve(
+      window.api?.agentStatus?.listSessionPaneBindings?.() ?? {}
+    )
       .then((bindings) => {
         if (bindings && typeof bindings === 'object') {
           hydrateAgentSessionPaneBindings(bindings as Record<string, string>)
@@ -3570,7 +3572,11 @@ export function useIpcEvents(): void {
       }
       snapshotRequestedForReadyWindow = true
       const requestId = ++snapshotRequestId
-      void getSnapshot()
+      // Why after the bindings: a replayed row routed before its binding is in hand
+      // lands on the pane its hook names and stays there - the binding only steers
+      // what arrives later.
+      void sessionPaneBindingsHydrated
+        .then(() => getSnapshot())
         .then((entries) => {
           if (agentStatusEffectDisposed || requestId !== snapshotRequestId) {
             return

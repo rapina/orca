@@ -48,6 +48,8 @@ export type AgentStatusApi = {
   }) => Promise<string | null>
   /** Remember which terminal an agent session was bound to, across restarts. */
   bindSessionPane: (args: { sessionId: string; paneKey: string }) => void
+  /** Forget a session's terminal, so a background job gets a row of its own again. */
+  unbindSessionPane: (args: { sessionId: string }) => void
   listSessionPaneBindings: () => Promise<Record<string, string>>
   /** What each terminal is working on: the folder its agent is in, and the pull
    *  requests its own output has shown. */

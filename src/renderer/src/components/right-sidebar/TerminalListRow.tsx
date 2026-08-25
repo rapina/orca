@@ -53,8 +53,10 @@ export function TerminalListRow({
   context,
   ptyId,
   canMove,
+  canDetach = false,
   pendingMove,
   onBeginMove,
+  onDetach,
   onCompleteMove
 }: {
   entry: TerminalListEntry
@@ -62,8 +64,11 @@ export function TerminalListRow({
   /** The terminal's pty; tells a link under the row whether its terminal is local or remote. */
   ptyId?: string
   canMove: boolean
+  /** The agent shown here was bound to this terminal by hand. */
+  canDetach?: boolean
   pendingMove: PendingMove | null
   onBeginMove: (entry: TerminalListEntry) => void
+  onDetach?: (entry: TerminalListEntry) => void
   onCompleteMove: (toPaneKey: string) => void
 }): React.JSX.Element {
   const clearTerminalPaneUnread = useAppStore((s) => s.clearTerminalPaneUnread)
@@ -149,9 +154,13 @@ export function TerminalListRow({
         open={menuOpen}
         menuPoint={menuPoint}
         canMove={canMove && !pendingMove}
+        canDetach={canDetach && !pendingMove}
         onOpenChange={setMenuOpen}
         onBeginMove={() => {
           onBeginMove(entry)
+        }}
+        onDetach={() => {
+          onDetach?.(entry)
         }}
         onMarkUnread={() => {
           if (entry.paneKey) {

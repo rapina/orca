@@ -363,6 +363,20 @@ git push origin custom
   `isBackgroundJobPaneKey`로 우회한다. 이 우회가 없으면 끝난 잡이 언리드를 못 남긴다.
 - 세션 라우팅된 상태에는 `terminalHandle`·`launchToken`을 싣지 않는다 — 둘 다 데몬을 띄운
   터미널 것이라 잠든 에이전트 복원이나 보존 행 매칭을 엉뚱한 터미널에 건다.
+- **새 빌드를 켜도 훅 스크립트가 안 바뀌었다.** `~/.orca/agent-hooks/claude-hook.cmd`는 시작 시
+  `refreshManagedScriptIfPresent`가 임시 파일을 만들어 **rename으로 교체**하는데, cmd.exe는 실행 중인
+  배치 파일을 삭제 공유 없이 열어 두므로 어떤 훅이 그 순간 돌고 있으면 EPERM으로 진다. 세션 20개가
+  훅을 쏘는 기계에서 시작 시점이 정확히 그 순간이었고, 실패는 콘솔에만 남았다(파일 로그 없음).
+  실측: 새 빌드의 `app.asar`에는 새 스크립트가 있는데 디스크 파일은 8/21 그대로, 훅에 `processHost`
+  없음. 고친 것: rename을 50ms 간격 10회 재시도하고 그래도 지면 **제자리 쓰기**(cmd.exe는 쓰기 공유는
+  허용한다); 동기 경로(`writeManagedScript`)는 바로 제자리 쓰기. 그리고 **`processHost` 없는 클로드
+  훅이 들어오면 5분에 한 번 스크립트를 다시 쓴다**(`stale-hook-script-refresh.ts`) — 시작 시 교체가
+  어떤 이유로든 지면 다음 훅이 고친다.
+- 결속(`session-pane-bindings.json`)은 **스냅샷 재생 전에** 읽는다. 재생된 행은 나중 결속으로 안
+  옮겨진다.
+- 우클릭 메뉴에 **「알림에 자기 행 주기」**(결속 해제)를 넣었다. 잡을 터미널에 결속하면 그 터미널
+  자체 세션의 상태를 잡이 계속 덮어쓴다 — "작업중이 안 사라진다"의 한 갈래. 해제하면 그 페인의 행을
+  버리고 다음 훅부터 잡 자기 행으로 간다.
 - 행 아래 PR 칩은 **터미널 링크와 같은 라우팅**을 탄다(`terminal-row-link-open.ts` →
   `openHttpLink`): 설정 `openLinksInApp`, Shift+Ctrl/⌘ 반전, 첫 클릭의 선택 프롬프트까지. 우클릭
   메뉴가 두 목적지를 이름으로 준다. **행의 우클릭은 캡처 단계**라 칩의 메뉴보다 먼저 뛴다 — 칩에
