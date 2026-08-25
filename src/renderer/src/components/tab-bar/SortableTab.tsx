@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { X, Minimize2, Pin } from 'lucide-react'
-import { stripLeadingAgentTitleDecoration } from '../../../../shared/agent-title-decoration'
+import { useTabDisplayTitle } from './use-tab-display-title'
 import { useTabAgent } from '@/lib/use-tab-agent'
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
 import { Input } from '@/components/ui/input'
@@ -24,7 +24,6 @@ import { useOptionalShortcutLabel } from '@/hooks/useShortcutLabel'
 import { useTabStripPointerActivation } from './tab-strip-pointer-activation'
 import { TerminalTabLeadingIcon } from './TerminalTabLeadingIcon'
 import {
-  isTerminalTabActivityLive,
   resolveTerminalTabActivityStatus,
   terminalTabHasUnreadActivity
 } from './terminal-tab-activity-status'
@@ -115,10 +114,6 @@ export default function SortableTab({
   // Why: use hook status + title evidence so the icon reflects the harness running now, not just the launch command.
   const tabAgent = useTabAgent(tab)
 
-  // Why: with a provider icon shown, strip the agent's own leading glyph so the tab doesn't show two icons for one agent.
-  const displayTitle =
-    tab.customTitle ?? (tabAgent ? stripLeadingAgentTitleDecoration(tab.title) : tab.title)
-
   const { attributes, listeners, setNodeRef } = useSortable({
     id: tab.id,
     // Why: carry the resolved agent into the drag overlay so dragged tabs keep the same glyph without another store lookup.
@@ -129,9 +124,13 @@ export default function SortableTab({
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
   const [isEditing, setIsEditing] = useState(false)
-  // Why: a live working/needs-input state is newer than a prior-turn unread, so it owns the icon until the turn ends.
-  const showUnreadActivity =
-    hasUnreadActivity && !isEditing && !isTerminalTabActivityLive(activityStatus)
+  // Why: unread outranks a live turn. A tab holds several terminals, so a terminal
+  // still working must not hide one that already finished unseen — the bell is the
+  // ask, the spinner is only progress. (Same ladder as resolveTerminalTabAttentionBadge.)
+  const showUnreadActivity = hasUnreadActivity && !isEditing
+  // Why: the label follows the terminal the icon is about — the unread one while
+  // the bell is up, otherwise the one running the live turn.
+  const displayTitle = useTabDisplayTitle(tab, tabAgent, showUnreadActivity)
   const [renameValue, setRenameValue] = useState('')
   const renameFocusFrameRef = useRef<number | null>(null)
   // Why: onBlur fires during Input unmount; mark rename resolved so it can't re-commit and overwrite discarded edits.

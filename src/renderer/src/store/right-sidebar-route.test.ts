@@ -9,6 +9,15 @@ describe('normalizeRightSidebarRoute', () => {
     })
   })
 
+  // Why (regression): a tab missing from this whitelist is silently rewritten to
+  // Explorer, so clicking its activity-bar button opened the file tree instead.
+  it('preserves the Terminals route', () => {
+    expect(normalizeRightSidebarRoute('terminals')).toEqual({
+      rightSidebarTab: 'terminals',
+      rightSidebarExplorerView: 'files'
+    })
+  })
+
   it('still normalizes invalid tabs to Explorer files', () => {
     expect(normalizeRightSidebarRoute('missing')).toEqual({
       rightSidebarTab: 'explorer',

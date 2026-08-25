@@ -103,6 +103,19 @@ export type UpdateInstallMode =
   | 'supervised-headless-serve'
   | 'unsupported-headless-serve'
 
+/**
+ * True unless this build explicitly opts into the upstream release feed.
+ *
+ * Why: this fork is built from source, but the feed still points at the upstream
+ * repository. Taking one of those releases replaces the locally built app with an
+ * official build and silently drops whatever this branch adds — including the
+ * update prompt's own promise that terminal sessions survive. Set
+ * ORCA_ENABLE_UPDATER=1 when you deliberately want to track upstream releases.
+ */
+function updaterOptedOut(): boolean {
+  return process.env.ORCA_ENABLE_UPDATER !== '1'
+}
+
 const AUTO_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 const AUTO_UPDATE_RETRY_INTERVAL_MS = 60 * 60 * 1000
 // Why: a persistently-failing feed used to re-arm the retry at a fixed 1h cadence forever (issue #7576); backoff doubles per failure up to this cap, any completed check resets.
@@ -1521,7 +1534,7 @@ function runBackgroundUpdateCheck(
   if (backgroundCheckLaunchPending || currentStatus.state === 'checking') {
     return false
   }
-  if (!app.isPackaged || is.dev) {
+  if (!app.isPackaged || is.dev || updaterOptedOut()) {
     sendStatus({ state: 'not-available' })
     return false
   }
@@ -1581,7 +1594,7 @@ function enableIncludePrerelease(): void {
 
 /** Menu-triggered check — delegates feedback to renderer toasts via userInitiated flag */
 export function checkForUpdatesFromMenu(options?: UpdateCheckOptions): void {
-  if (!app.isPackaged || is.dev) {
+  if (!app.isPackaged || is.dev || updaterOptedOut()) {
     sendStatus({ state: 'not-available', userInitiated: true })
     return
   }
@@ -2176,6 +2189,11 @@ export function setupAutoUpdater(
     return
   }
   if (is.dev) {
+    return
+  }
+  // Why: bail before any handler is registered so an opted-out build never even
+  // schedules a check — no nudge card, no download, nothing to click by mistake.
+  if (updaterOptedOut()) {
     return
   }
 

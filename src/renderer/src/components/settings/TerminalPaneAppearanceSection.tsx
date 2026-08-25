@@ -2,6 +2,7 @@ import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { DEFAULT_TERMINAL_INACTIVE_PANE_OPACITY } from '../../../../shared/constants'
 import { NumberField, SettingsSubsectionHeader } from './SettingsFormControls'
 import { SearchableSetting } from './SearchableSetting'
+import { Switch } from '../ui/switch'
 import { clampNumber, resolvePaneStyleOptions } from '@/lib/terminal-theme'
 import { translate } from '@/i18n/i18n'
 
@@ -88,6 +89,24 @@ export function TerminalPaneAppearanceSection({
                 terminalDividerThicknessPx: clampNumber(value, 1, 32)
               })
             }
+          />
+        </SearchableSetting>
+        <SearchableSetting
+          title={translate('components.terminalUnread.outlineSetting', 'Unread Terminal Outline')}
+          description={translate(
+            'components.terminalUnread.outlineSettingDescription',
+            'Ring the terminal itself while it has unread activity. Off leaves the tab and pane bells as the only cue.'
+          )}
+          keywords={['pane', 'unread', 'outline', 'ring', 'attention', 'bell']}
+          className="flex items-center justify-between gap-4 py-2"
+        >
+          <Switch
+            aria-label={translate(
+              'components.terminalUnread.outlineSetting',
+              'Unread Terminal Outline'
+            )}
+            checked={settings.terminalUnreadOutline !== false}
+            onCheckedChange={(checked) => updateSettings({ terminalUnreadOutline: checked })}
           />
         </SearchableSetting>
       </div>

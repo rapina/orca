@@ -287,7 +287,9 @@ describe('palette live status', () => {
     expect(testContainer.querySelector('[title="Unread agent completion"]')).not.toBeNull()
   })
 
-  it('prefers working over unread on the same row', async () => {
+  // Why: a tab holds several terminals, so one still working must not hide a sibling
+  // that finished unseen — the bell is the ask, the spinner is only progress.
+  it('prefers unread over working on the same row', async () => {
     setAgentState('working')
     useAppStore.setState({
       unreadTerminalTabs: { 'term-a': true }
@@ -308,8 +310,8 @@ describe('palette live status', () => {
         </PaletteLiveStatusProvider>
       )
     })
-    expect(testContainer.querySelector('[data-spinner]')).not.toBeNull()
-    expect(dotLabels()).toEqual(['Working'])
+    expect(testContainer.querySelector('[data-spinner]')).toBeNull()
+    expect(dotLabels()).toEqual(['Unread agent completion'])
   })
 
   it('badges freshly done with a check when quiet and not unread', async () => {
@@ -362,7 +364,7 @@ describe('palette live status', () => {
     expect(testContainer.innerHTML).not.toContain('lucide-circle-check')
   })
 
-  it('prefers permission over unread on the same row', async () => {
+  it('prefers unread over a permission prompt on the same row', async () => {
     setAgentState('blocked')
     useAppStore.setState({
       unreadTerminalTabs: { 'term-a': true }
@@ -383,7 +385,7 @@ describe('palette live status', () => {
         </PaletteLiveStatusProvider>
       )
     })
-    expect(dotLabels()).toEqual(['Needs permission'])
+    expect(dotLabels()).toEqual(['Unread agent completion'])
   })
 
   it('cuts the pip out of the dialog surface, and out of accent when selected', async () => {

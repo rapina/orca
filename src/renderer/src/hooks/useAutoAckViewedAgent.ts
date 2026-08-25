@@ -110,25 +110,17 @@ export function shouldClearViewedAgentWorktreeUnread(
 type ViewedAgentAttentionActions = {
   acknowledgeAgents: (paneKeys: string[]) => void
   clearWorktreeUnread: (worktreeId: string) => void
-  clearTerminalTabUnread: (tabId: string) => void
-  clearTerminalPaneUnread: (paneKey: string) => void
 }
 
 export function acknowledgeViewedAgentAttention(
   state: ViewedAgentAttentionActions,
   args: {
     activeWorktreeId: string | null
-    activeTabId: string
     paneKeys: string[]
     activePaneKey?: string | null
   }
 ): void {
-  const paneKeysToClear = new Set(args.paneKeys)
-  if (args.activePaneKey) {
-    paneKeysToClear.add(args.activePaneKey)
-  }
-
-  if (args.paneKeys.length === 0 && paneKeysToClear.size === 0) {
+  if (args.paneKeys.length === 0 && !args.activePaneKey) {
     return
   }
 
@@ -139,10 +131,10 @@ export function acknowledgeViewedAgentAttention(
     // Why: the selected agent is now visible, so clear the Dock-driving worktree unread without a click.
     state.clearWorktreeUnread(args.activeWorktreeId)
   }
-  state.clearTerminalTabUnread(args.activeTabId)
-  for (const paneKey of paneKeysToClear) {
-    state.clearTerminalPaneUnread(paneKey)
-  }
+  // Why: this acks agent rows only. Unread is dismissed by explicitly picking a
+  // terminal (clicking it, typing in it, choosing it in the terminal list), and
+  // landing on a tab is not that pick — switching tabs would otherwise silence a
+  // terminal the user only navigated past.
 }
 
 // Auto-ack an agent row as "seen" when the user is already on its tab, so the dashboard/Dock don't stay bold for an event they watched happen.
@@ -213,7 +205,6 @@ export function useAutoAckViewedAgent(): void {
           })
             ? s.activeWorktreeId
             : null,
-          activeTabId,
           paneKeys: toAck,
           activePaneKey
         })

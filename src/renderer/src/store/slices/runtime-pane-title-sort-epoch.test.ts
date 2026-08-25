@@ -379,4 +379,26 @@ describe('runtimePaneTitle → sortEpoch', () => {
     store.getState().clearRuntimePaneTitle('tab-1', 1)
     expect(store.getState().sortEpoch).toBe(baseline)
   })
+
+  // Why: the numeric pane id is renderer-local, so a global surface (terminal list,
+  // tab strip) can only name a terminal when the title is also filed under its layout
+  // leaf. Without it every pane of a tab fell back to the shared tab title, which
+  // followed whichever pane had focus.
+  it('files the title under the layout leaf when the writer knows it', () => {
+    const leafId = '11111111-1111-4111-8111-111111111111'
+    const store = createTestStore()
+
+    store.getState().setRuntimePaneTitle('tab-1', 1, 'server', leafId)
+
+    expect(store.getState().runtimePaneTitlesByLeafId['tab-1']?.[leafId]).toBe('server')
+    expect(store.getState().runtimePaneTitlesByTabId['tab-1']?.[1]).toBe('server')
+  })
+
+  it('leaves the leaf map alone when the writer has no leaf', () => {
+    const store = createTestStore()
+
+    store.getState().setRuntimePaneTitle('tab-1', 1, 'server')
+
+    expect(store.getState().runtimePaneTitlesByLeafId['tab-1']).toBeUndefined()
+  })
 })

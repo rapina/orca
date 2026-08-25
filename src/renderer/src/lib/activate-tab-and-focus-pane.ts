@@ -1,5 +1,6 @@
 import { useAppStore } from '@/store'
 import { FOCUS_TERMINAL_PANE_EVENT, type FocusTerminalPaneDetail } from '@/constants/terminal'
+import type { FocusedPaneFlashTone } from '@/components/terminal-pane/focused-pane-rim-flash'
 
 let pendingFocusPaneFrameId: number | null = null
 
@@ -16,6 +17,8 @@ export function activateTabAndFocusPane(
   opts?: {
     ackPaneKeyOnSuccess?: string
     flashFocusedPane?: boolean
+    /** Colour of the rim flash. Defaults to the locate blue. */
+    flashFocusedPaneTone?: FocusedPaneFlashTone
     scrollToBottomIfOutputSinceLastView?: boolean
   }
 ): void {
@@ -37,6 +40,9 @@ export function activateTabAndFocusPane(
       leafId,
       ...(opts?.ackPaneKeyOnSuccess ? { ackPaneKeyOnSuccess: opts.ackPaneKeyOnSuccess } : {}),
       ...(opts?.flashFocusedPane ? { flashFocusedPane: true } : {}),
+      // Why forwarded explicitly: this builder whitelists what it passes on, so a
+      // field added to the event but not listed here is dropped without a word.
+      ...(opts?.flashFocusedPaneTone ? { flashFocusedPaneTone: opts.flashFocusedPaneTone } : {}),
       ...(opts?.scrollToBottomIfOutputSinceLastView
         ? { scrollToBottomIfOutputSinceLastView: true }
         : {})

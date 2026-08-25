@@ -27,6 +27,9 @@ import { devinHookService } from '../devin/hook-service'
 import { kimiHookService } from '../kimi/hook-service'
 import { openClaudeHookService } from '../openclaude/hook-service'
 import { registerAgentPaneAuthorityIpcHandlers } from './agent-pane-authority-ipc'
+import { registerAgentSessionTurnIpcHandlers } from './agent-session-turn-ipc'
+import './agent-session-pane-binding-ipc'
+import { registerTerminalContextIpcHandlers } from './terminal-context-ipc'
 import { createAgentPaneAuthorityOwnership } from './agent-pane-authority-ownership'
 import {
   enrichAgentStatusIpcPayload,
@@ -102,6 +105,8 @@ export function registerAgentHookHandlers(
       console.warn('[agent-hooks] dropStatusEntriesByTabPrefix failed:', err)
     }
   })
+  registerAgentSessionTurnIpcHandlers()
+  registerTerminalContextIpcHandlers()
   registerAgentPaneAuthorityIpcHandlers({
     ownsPty: createAgentPaneAuthorityOwnership({
       getPtyIdForPaneKey: dependencies.getPtyIdForPaneKey,

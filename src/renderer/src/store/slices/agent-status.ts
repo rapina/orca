@@ -41,6 +41,7 @@ import {
 } from '@/lib/agent-row-primary-text'
 import { isCompletedPiCompatibleAgentWithLiveRecoveryRecord } from '@/lib/pi-compatible-live-recovery-record'
 import {
+  bindAgentSessionPane,
   resolveAgentPaneAuthorityKey,
   retireAgentPaneAuthorityAliases,
   retireAgentPaneAuthorityAliasesByOwnerTab,
@@ -208,6 +209,8 @@ export type AgentStatusSlice = {
     fromPaneKey: string
     toPaneKey: string
     ptyId?: string | null
+    /** Move only this agent session, leaving the source pane's other sessions put. */
+    sessionId?: string
   }) => void
 
   /** Update or insert an agent status entry from a status payload. */
@@ -486,6 +489,19 @@ function findCompletedOrphanPaneKeysForTabClose(
     paneKeys.push(paneKey)
   }
   return paneKeys
+}
+
+/** Whether a pane key still names a terminal some tab is drawing. */
+export function paneIsInALayout(
+  state: Pick<AppState, 'terminalLayoutsByTabId'>,
+  paneKey: string
+): boolean {
+  const tabId = getTabIdFromPaneKey(paneKey)
+  const leafId = getLeafIdFromPaneKey(paneKey)
+  if (!tabId || !leafId) {
+    return false
+  }
+  return Boolean(state.terminalLayoutsByTabId?.[tabId]?.ptyIdsByLeafId?.[leafId])
 }
 
 function isRecentlyClosedAgentStatusTab(
@@ -1545,8 +1561,29 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
       }
     },
 
-    transferAgentPaneAuthority: ({ fromPaneKey, toPaneKey, ptyId }) => {
-      const transfer = transferAgentPaneAuthorityAlias({ fromPaneKey, toPaneKey, ptyId })
+    transferAgentPaneAuthority: ({ fromPaneKey, toPaneKey, ptyId, sessionId }) => {
+      // Why a session id changes the move: without one this is a pane detaching and
+      // every key pointing at it must follow. With one it is a single session that
+      // reported the wrong pane, and the pane it named still owns whatever else
+      // reports there - re-pointing it would drag those along too.
+      const boundSession = sessionId
+        ? bindAgentSessionPane(sessionId, toPaneKey, fromPaneKey)
+        : false
+      if (boundSession && sessionId && typeof window !== 'undefined') {
+        // Why persisted: the agent keeps reporting the pane it was born with for as
+        // long as it runs, which outlasts this Orca run — without this the next start
+        // puts it back on the terminal it was never in and asks for the same
+        // correction again.
+        window.api?.agentStatus?.bindSessionPane?.({ sessionId, paneKey: toPaneKey })
+      }
+      const transfer = boundSession
+        ? {
+            physicalPaneKey: fromPaneKey,
+            previousOwnerPaneKey: resolveAgentPaneAuthorityKey(fromPaneKey),
+            ownerPaneKey: toPaneKey,
+            ptyId: ptyId ?? null
+          }
+        : transferAgentPaneAuthorityAlias({ fromPaneKey, toPaneKey, ptyId })
       if (!transfer || transfer.previousOwnerPaneKey === transfer.ownerPaneKey) {
         return
       }
@@ -1603,7 +1640,9 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         cacheTimerByKey: movePaneKeyedRecord(s.cacheTimerByKey, from, to),
         retentionSuppressedPaneKeys: movePaneKeyedRecord(s.retentionSuppressedPaneKeys, from, to)
       }))
-      if (typeof window !== 'undefined') {
+      // Why main is told only for a pane move: its alias is pane-scoped too, so a
+      // session correction sent there would re-point every session on that pane.
+      if (!boundSession && typeof window !== 'undefined') {
         window.api?.agentStatus?.transferPaneAuthority?.({
           fromPaneKey: from,
           toPaneKey: to,
@@ -1908,10 +1947,25 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
     },
 
     setAgentStatus: (paneKey, payload, terminalTitle, timing, routing, metadata) => {
-      paneKey = resolveAgentPaneAuthorityKey(paneKey)
+      // Why the session id: a background-job session reports the pane key of the
+      // terminal that started its host, not the one showing it, so a hand-made
+      // binding for that session has to win over the key on the wire.
+      paneKey = resolveAgentPaneAuthorityKey(paneKey, metadata?.providerSession?.id)
       const updatedAt = timing?.updatedAt ?? Date.now()
+      // Why a retired pane still in a layout fails closed, and one that is gone does
+      // not: the guard is for late events resurrecting a dismissed row. An agent
+      // whose terminal was closed keeps running under its background-job host and
+      // keeps reporting that pane forever - dropping those left a running turn with
+      // no sign of it anywhere. It cannot get a terminal row back either way, so the
+      // list shows it as unattached and offers to move it.
+      // Why a finished turn is still rejected: that is the tail of the pane that was
+      // just closed, which is what this guard was written for. A turn that is still
+      // running when its terminal is already gone is the other thing entirely.
+      const retiredPaneRejects =
+        paneKey in get().recentlyRetiredAgentStatusPaneKeys &&
+        (payload.state === 'done' || paneIsInALayout(get(), paneKey))
       if (
-        paneKey in get().recentlyRetiredAgentStatusPaneKeys ||
+        retiredPaneRejects ||
         // Why: a closed tab is no longer a valid destination for hook replays or late status events.
         isRecentlyClosedAgentStatusTab(
           get().recentlyClosedAgentStatusTabIds,
@@ -1921,6 +1975,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         return
       }
       let completionRefreshWorktreeId: string | null = null
+      let resumedTurnPaneKey: string | null = null
       let suppressedInheritedTerminalStatus = false
       const generatedTitleEntry: { current: AgentStatusEntry | null } = { current: null }
       set((s) => {
@@ -2175,6 +2230,12 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         ) {
           completionRefreshWorktreeId = entry.worktreeId ?? findAgentPaneWorktreeId(s, paneKey)
         }
+        // Why: unread means "this turn finished and you have not seen it". A turn
+        // starting again retires that claim — the terminal is no longer waiting on
+        // the user, so its bell must not outlive the pause.
+        if (entry.state === 'working' && existing?.state !== 'working') {
+          resumedTurnPaneKey = paneKey
+        }
         // Why: emit a global tick only when an entry appears, changes state, crosses stale→fresh,
         // or is a same-state `done` update — same-state working pings must not fan out to aggregates.
         const wasFresh =
@@ -2386,6 +2447,12 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         const worktreeId = completionRefreshWorktreeId
         // Why: agents can create a PR via `gh pr create`, bypassing Orca's flow and leaving a stale "no PR" cache entry in place.
         queueMicrotask(() => get().refreshGitHubForWorktreeIfStale(worktreeId))
+      }
+      if (resumedTurnPaneKey) {
+        const paneKeyToClear = resumedTurnPaneKey
+        // Why: after commit, so a batched burst clears against the state the batch
+        // actually wrote rather than the snapshot it started from.
+        runAfterAgentStatusCommit(() => get().clearTerminalPaneUnread(paneKeyToClear))
       }
     },
 

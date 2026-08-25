@@ -33,6 +33,8 @@ import type { PtyTransport } from './pty-transport'
 import type { PtyTransportRecoveryState } from './pty-transport-types'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
 import { getConnectionId } from '@/lib/connection-context'
+import { collectUnreadLeafIds } from '@/lib/terminal-unread'
+import { handleTerminalWheelVisit, readPaneViewportScroll } from '@/lib/terminal-wheel-visit'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { hydrateRuntimeEnvironmentSshState } from '@/runtime/runtime-environment-ssh-state'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
@@ -42,7 +44,7 @@ import {
   EMPTY_LAYOUT,
   serializeTerminalLayout
 } from './layout-serialization'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-id'
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
 import {
   applyExpandedLayoutTo,
@@ -714,6 +716,21 @@ function TerminalPane(
   const clearWorktreeUnread = useAppStore((store) => store.clearWorktreeUnread)
   const clearTerminalTabUnread = useAppStore((store) => store.clearTerminalTabUnread)
   const clearTerminalPaneUnread = useAppStore((store) => store.clearTerminalPaneUnread)
+  // Why: subscribe to a joined primitive so unread changes in other tabs cannot
+  // repaint this tab's header overlay; the Set is rebuilt only when it changed.
+  const unreadLeafIdsKey = useAppStore((store) =>
+    collectUnreadLeafIds(
+      {
+        unreadTerminalPanes: store.unreadTerminalPanes,
+        unreadAgentCompletionPanes: store.unreadAgentCompletionPanes
+      },
+      tabId
+    ).join(',')
+  )
+  const unreadLeafIds = useMemo(
+    () => new Set(unreadLeafIdsKey.length > 0 ? unreadLeafIdsKey.split(',') : []),
+    [unreadLeafIdsKey]
+  )
   const openSpacePage = useAppStore((store) => store.openSpacePage)
   const refreshWorkspaceSpace = useAppStore((store) => store.refreshWorkspaceSpace)
   const settings = useAppStore((store) => store.settings)
@@ -2215,28 +2232,58 @@ function TerminalPane(
     }
   }, [isActive, worktreeId, keybindings, forceBracketedMultilineTextPaste, tabId])
 
-  // Dismiss the pane's attention indicator on click (ghostty "show until interact"); pointerdown covers the mouse path onData doesn't.
-  // NOT gated on isActive: clicking a visible-but-inactive split pane must clear the worktree dot before focusGroup re-renders it active.
+  // Why: only an explicit pick of this terminal dismisses its unread — a click in
+  // the pane, typing in it (see onTerminalKeyDown), or choosing it in the terminal
+  // list. Focus is deliberately not the trigger: switching tabs restores focus to
+  // whichever terminal was last active there, which would silence a terminal the
+  // user navigated past rather than visited.
+  // NOT gated on isActive: clicking a visible-but-inactive split pane counts too.
   useEffect(() => {
     const container = containerRef.current
     if (!container) {
       return
     }
     const onPointerDown = (event: PointerEvent): void => {
-      clearTerminalTabUnread(tabId)
-      clearWorktreeUnread(worktreeId)
       const paneElement =
         event.target instanceof Element ? event.target.closest('.pane[data-leaf-id]') : null
       const leafId = paneElement?.getAttribute('data-leaf-id')
-      if (leafId) {
-        clearTerminalPaneUnread(makePaneKey(tabId, leafId))
+      if (!leafId || !isTerminalLeafId(leafId)) {
+        return
       }
+      clearTerminalPaneUnread(makePaneKey(tabId, leafId))
+      clearWorktreeUnread(worktreeId)
+    }
+    // Why: scrolling a terminal back through its output is reading it, so it
+    // dismisses that terminal's unread too. The gesture only counts once the
+    // viewport actually moved (see wheelCountsAsTerminalVisit) - a wheel on a
+    // terminal already parked at the bottom shows nothing new. The comparison
+    // waits a frame because xterm applies the scroll after the event.
+    let disposed = false
+    const onWheel = (event: WheelEvent): void => {
+      handleTerminalWheelVisit(event.target, {
+        isTerminalLeaf: isTerminalLeafId,
+        readViewport: readPaneViewportScroll,
+        schedule: (run) => {
+          requestAnimationFrame(() => {
+            if (!disposed) {
+              run()
+            }
+          })
+        },
+        onVisit: (leafId) => {
+          clearTerminalPaneUnread(makePaneKey(tabId, leafId))
+          clearWorktreeUnread(worktreeId)
+        }
+      })
     }
     container.addEventListener('pointerdown', onPointerDown, { capture: true })
+    container.addEventListener('wheel', onWheel, { capture: true, passive: true })
     return () => {
+      disposed = true
       container.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      container.removeEventListener('wheel', onWheel, { capture: true })
     }
-  }, [tabId, worktreeId, clearTerminalTabUnread, clearTerminalPaneUnread, clearWorktreeUnread])
+  }, [tabId, worktreeId, clearTerminalPaneUnread, clearWorktreeUnread])
 
   const applyTerminalPaneAttention = useCallback(() => {
     const manager = managerRef.current
@@ -3209,6 +3256,7 @@ function TerminalPane(
         activePaneId={activePane?.id}
         panes={managedPanes}
         paneTitles={paneTitles}
+        unreadLeafIds={unreadLeafIds}
         paneTitleOverlayRects={paneTitleOverlayRects}
         renamingPaneId={renamingPaneId}
         renameValue={renameValue}

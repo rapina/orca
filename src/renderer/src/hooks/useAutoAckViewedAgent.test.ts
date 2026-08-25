@@ -206,67 +206,56 @@ describe('computeAutoAckTargets — codex retain race regression', () => {
 })
 
 describe('acknowledgeViewedAgentAttention', () => {
-  it('acks the visible agent and clears unread worktree/tab/pane attention', () => {
+  // Why: this path acks agent rows only. Unread is dismissed by explicitly picking a
+  // terminal (clicking it, typing in it, choosing it in the terminal list), so simply
+  // landing on the tab that owns it must leave it unread — the actions this takes no
+  // longer include any unread clear.
+  it('acks the visible agent and clears the worktree dot', () => {
     const actions = {
       acknowledgeAgents: vi.fn(),
-      clearWorktreeUnread: vi.fn(),
-      clearTerminalTabUnread: vi.fn(),
-      clearTerminalPaneUnread: vi.fn()
+      clearWorktreeUnread: vi.fn()
     }
     const paneKey = makePaneKey('tab-1', CODEX_LEAF_ID)
 
     acknowledgeViewedAgentAttention(actions, {
       activeWorktreeId: 'wt-1',
-      activeTabId: 'tab-1',
       paneKeys: [paneKey]
     })
 
     expect(actions.acknowledgeAgents).toHaveBeenCalledWith([paneKey])
     expect(actions.clearWorktreeUnread).toHaveBeenCalledWith('wt-1')
-    expect(actions.clearTerminalTabUnread).toHaveBeenCalledWith('tab-1')
-    expect(actions.clearTerminalPaneUnread).toHaveBeenCalledWith(paneKey)
   })
 
   it('does nothing when there are no visible agent targets', () => {
     const actions = {
       acknowledgeAgents: vi.fn(),
-      clearWorktreeUnread: vi.fn(),
-      clearTerminalTabUnread: vi.fn(),
-      clearTerminalPaneUnread: vi.fn()
+      clearWorktreeUnread: vi.fn()
     }
 
     acknowledgeViewedAgentAttention(actions, {
       activeWorktreeId: 'wt-1',
-      activeTabId: 'tab-1',
       paneKeys: []
     })
 
     expect(actions.acknowledgeAgents).not.toHaveBeenCalled()
     expect(actions.clearWorktreeUnread).not.toHaveBeenCalled()
-    expect(actions.clearTerminalTabUnread).not.toHaveBeenCalled()
-    expect(actions.clearTerminalPaneUnread).not.toHaveBeenCalled()
   })
 
-  it('clears visible pane unread even when there is no agent row to acknowledge', () => {
+  it('still clears the worktree dot for a viewed pane with no agent row', () => {
     const actions = {
       acknowledgeAgents: vi.fn(),
-      clearWorktreeUnread: vi.fn(),
-      clearTerminalTabUnread: vi.fn(),
-      clearTerminalPaneUnread: vi.fn()
+      clearWorktreeUnread: vi.fn()
     }
     const paneKey = makePaneKey('tab-1', CODEX_LEAF_ID)
 
     acknowledgeViewedAgentAttention(actions, {
       activeWorktreeId: 'wt-1',
-      activeTabId: 'tab-1',
       paneKeys: [],
       activePaneKey: paneKey
     })
 
     expect(actions.acknowledgeAgents).not.toHaveBeenCalled()
     expect(actions.clearWorktreeUnread).toHaveBeenCalledWith('wt-1')
-    expect(actions.clearTerminalTabUnread).toHaveBeenCalledWith('tab-1')
-    expect(actions.clearTerminalPaneUnread).toHaveBeenCalledWith(paneKey)
   })
 })
 

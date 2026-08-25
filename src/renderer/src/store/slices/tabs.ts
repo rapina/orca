@@ -1051,19 +1051,9 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         return {}
       }
       const { tab, worktreeId } = found
-      // Why: activating a terminal tab dismisses its tab-level bell — the user has moved their eyes here.
-      // Why (activeWorktree guard below): only when the tab is in the active worktree, else the unseen signal is lost (mirrors focusGroup).
-      const terminalEntityId = tab.contentType === 'terminal' ? tab.entityId : null
-      const nextUnreadTerminalTabs =
-        state.activeWorktreeId === worktreeId &&
-        terminalEntityId &&
-        state.unreadTerminalTabs[terminalEntityId]
-          ? (() => {
-              const copy = { ...state.unreadTerminalTabs }
-              delete copy[terminalEntityId]
-              return copy
-            })()
-          : state.unreadTerminalTabs
+      // Why: activating a tab no longer dismisses unread. Unread is owned by a
+      // terminal, so it clears only when that terminal takes focus or the user
+      // types into it; a tab click must not silence the tab's other terminals.
       return {
         unifiedTabsByWorktree: opts?.preservePreview
           ? state.unifiedTabsByWorktree
@@ -1092,11 +1082,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         activeGroupIdByWorktree: {
           ...state.activeGroupIdByWorktree,
           [worktreeId]: tab.groupId
-        },
-        // Why: skip writing unreadTerminalTabs when the reference is unchanged, avoiding a no-op alloc that re-runs full-state selectors.
-        ...(nextUnreadTerminalTabs !== state.unreadTerminalTabs
-          ? { unreadTerminalTabs: nextUnreadTerminalTabs }
-          : {})
+        }
       }
     })
   },
@@ -1536,31 +1522,10 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
           activeGroupIdByWorktree: nextActiveGroupIdByWorktree
         }
       }
-      const groups = state.groupsByWorktree[worktreeId] ?? []
-      const unifiedTabs = state.unifiedTabsByWorktree[worktreeId] ?? []
-      const visibleTerminalEntityIds = new Set(
-        groups
-          .map((group) =>
-            group.activeTabId ? unifiedTabs.find((tab) => tab.id === group.activeTabId) : null
-          )
-          .filter((tab): tab is (typeof unifiedTabs)[number] => tab?.contentType === 'terminal')
-          .map((tab) => tab.entityId)
-      )
-      const nextUnreadTerminalTabs =
-        visibleTerminalEntityIds.size > 0
-          ? (() => {
-              let changed = false
-              const copy = { ...state.unreadTerminalTabs }
-              for (const terminalEntityId of visibleTerminalEntityIds) {
-                if (!copy[terminalEntityId]) {
-                  continue
-                }
-                delete copy[terminalEntityId]
-                changed = true
-              }
-              return changed ? copy : state.unreadTerminalTabs
-            })()
-          : state.unreadTerminalTabs
+      // Why: focusing a group no longer clears unread. Unread belongs to a
+      // terminal and is dismissed by focusing that terminal (or typing in it), so
+      // making every visible tab read here would silence terminals the user never
+      // looked at — including the other panes of a split.
       const activeSurfacePatch = buildActiveSurfacePatch(
         {
           ...state,
@@ -1571,17 +1536,12 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
       )
       if (
         groupAlreadyFocused &&
-        nextUnreadTerminalTabs === state.unreadTerminalTabs &&
         activeSurfacePatchMatchesState(state, worktreeId, activeSurfacePatch)
       ) {
         return state
       }
       return {
         ...(groupAlreadyFocused ? {} : { activeGroupIdByWorktree: nextActiveGroupIdByWorktree }),
-        // Why: only write unreadTerminalTabs when it changed — preserving the reference keeps selectors/subscribers from firing spuriously.
-        ...(nextUnreadTerminalTabs !== state.unreadTerminalTabs
-          ? { unreadTerminalTabs: nextUnreadTerminalTabs }
-          : {}),
         ...activeSurfacePatch
       }
     }),

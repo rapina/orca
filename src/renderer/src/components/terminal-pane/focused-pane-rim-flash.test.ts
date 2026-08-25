@@ -8,8 +8,10 @@ class MockClassList {
     this.classes.add(value)
   }
 
-  remove(value: string): void {
-    this.classes.delete(value)
+  remove(...values: string[]): void {
+    for (const value of values) {
+      this.classes.delete(value)
+    }
   }
 
   contains(value: string): boolean {
@@ -49,5 +51,32 @@ describe('flashFocusedPaneRim', () => {
     expect(pane.classList.contains('pane-focus-rim-flash')).toBe(true)
     vi.advanceTimersByTime(100)
     expect(pane.classList.contains('pane-focus-rim-flash')).toBe(false)
+  })
+
+  // Why: the rim is the only thing on screen that says the click took the unread
+  // mark away, so the tone has to reach the pane and leave with the flash.
+  it('carries the unread tone for a terminal whose unread the click cleared', () => {
+    vi.useFakeTimers()
+    const pane = createPaneElement()
+
+    flashFocusedPaneRim(pane, 'unread')
+
+    expect(pane.classList.contains('pane-focus-rim-flash')).toBe(true)
+    expect(pane.classList.contains('pane-focus-rim-flash-unread')).toBe(true)
+    vi.advanceTimersByTime(FOCUSED_PANE_FLASH_MS)
+    expect(pane.classList.contains('pane-focus-rim-flash-unread')).toBe(false)
+  })
+
+  // Why: a second click on an already-read terminal must not keep the amber from
+  // the first one, which would claim an unread was cleared when none was.
+  it('drops the unread tone when the same pane flashes again as a plain locate', () => {
+    vi.useFakeTimers()
+    const pane = createPaneElement()
+
+    flashFocusedPaneRim(pane, 'unread')
+    flashFocusedPaneRim(pane)
+
+    expect(pane.classList.contains('pane-focus-rim-flash')).toBe(true)
+    expect(pane.classList.contains('pane-focus-rim-flash-unread')).toBe(false)
   })
 })

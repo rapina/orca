@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useAppStore } from '@/store'
+import { resolveMovedAgentPaneKey } from '@/store/slices/agent-pane-authority'
 import { resolveCommittedTitleAgentType } from '@/lib/pane-agent-evidence'
 import { getRepoMapFromState, getWorktreeMapFromState } from '@/store/selectors'
 import { playDesktopNotificationSound } from '@/lib/desktop-notification-sound'
@@ -141,15 +142,24 @@ export function dispatchTerminalNotification(
 
   if (event.source === 'agent-task-complete') {
     const terminalAttentionEnabled = state.settings?.experimentalTerminalAttention === true
+    // Why resolved here: this event names a pane, not the session that finished, so
+    // on its own it cannot follow a session moved to the terminal it is really in -
+    // the status row moves and the unread it leaves stays behind. A pane still
+    // holding an agent of its own owns the event, so only an empty one defers.
+    const completionPaneKey = event.paneKey
+      ? state.agentStatusByPaneKey[event.paneKey]
+        ? event.paneKey
+        : (resolveMovedAgentPaneKey(event.paneKey) ?? event.paneKey)
+      : event.paneKey
     let tabId: string | null = null
-    if (event.paneKey) {
-      tabId = getPaneKeyTabId(event.paneKey)
+    if (completionPaneKey) {
+      tabId = getPaneKeyTabId(completionPaneKey)
       // Why: delayed completion hooks from a closed split pane can arrive while
       // another pane in the tab is still live; stale leaf completions must not
       // create unread state or OS notifications.
       const isCurrentPane = hasLivePty
-        ? isCurrentLivePaneKey(state, worktreeId, event.paneKey)
-        : isCurrentKnownPaneKey(state, worktreeId, event.paneKey)
+        ? isCurrentLivePaneKey(state, worktreeId, completionPaneKey)
+        : isCurrentKnownPaneKey(state, worktreeId, completionPaneKey)
       if (!tabId || !isCurrentPane) {
         return
       }
@@ -157,21 +167,21 @@ export function dispatchTerminalNotification(
 
     // Why: a focused worktree can still hide other terminal tabs/split panes;
     // only the exact active pane counts as already viewed.
-    const shouldMarkUnread = event.paneKey
-      ? !isVisibleForegroundPaneKey(state, worktreeId, event.paneKey)
+    const shouldMarkUnread = completionPaneKey
+      ? !isVisibleForegroundPaneKey(state, worktreeId, completionPaneKey)
       : state.activeWorktreeId !== worktreeId || !isOrcaWindowForegroundFocused()
     if (shouldMarkUnread) {
       // Why: activeWorktreeId is only in-app selection. If Orca is backgrounded,
       // a selected chat finishing still needs unread/Dock attention.
       state.markWorktreeUnread(worktreeId)
-      if (event.paneKey) {
+      if (completionPaneKey) {
         // Why: focus-return auto-ack needs an agent-specific source marker;
         // generic pane unread also covers BEL and must still show until interact.
-        state.markAgentCompletionPaneUnread(event.paneKey)
+        state.markAgentCompletionPaneUnread(completionPaneKey)
       }
-      if (terminalAttentionEnabled && tabId && event.paneKey) {
+      if (terminalAttentionEnabled && tabId && completionPaneKey) {
         state.markTerminalTabUnread(tabId)
-        state.markTerminalPaneUnread(event.paneKey)
+        state.markTerminalPaneUnread(completionPaneKey)
       }
     }
   }

@@ -446,7 +446,7 @@ describe('connectPanePty', () => {
   })
 
   // Why: a DOM keydown signals "user is here"; raw xterm onData is lower-level (can include terminal replies/control bytes).
-  it('clears tab and worktree unread on real keydown', async () => {
+  it('clears this pane and worktree unread on real keydown', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport()
     transportFactoryQueue.push(transport)
@@ -466,13 +466,15 @@ describe('connectPanePty', () => {
     Object.defineProperty(keydown, 'shiftKey', { value: false })
     ;(pane.terminal.element as EventTarget).dispatchEvent(keydown)
 
-    expect(deps.clearTerminalTabUnread).toHaveBeenCalledWith('tab-1')
     expect(deps.clearTerminalPaneUnread).toHaveBeenCalledWith(makePaneKey('tab-1', LEAF_1))
     expect(deps.clearWorktreeUnread).toHaveBeenCalledWith('wt-1')
+    // Why: typing dismisses the terminal being typed in. Clearing the tab flag here
+    // would silence the tab's other terminals, which the user never looked at.
+    expect(deps.clearTerminalTabUnread).not.toHaveBeenCalled()
     expect(transport.sendInput).not.toHaveBeenCalled()
   })
 
-  it('clears tab, pane, and worktree unread on plain Escape keydown', async () => {
+  it('clears pane and worktree unread on plain Escape keydown', async () => {
     // Why: plain Escape is real input (\x1b) — a genuine "user is here" signal; the interrupt-intent early return must not skip the unread clears.
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport()
@@ -494,9 +496,9 @@ describe('connectPanePty', () => {
     Object.defineProperty(keydown, 'shiftKey', { value: false })
     ;(pane.terminal.element as EventTarget).dispatchEvent(keydown)
 
-    expect(deps.clearTerminalTabUnread).toHaveBeenCalledWith('tab-1')
     expect(deps.clearTerminalPaneUnread).toHaveBeenCalledWith(makePaneKey('tab-1', LEAF_1))
     expect(deps.clearWorktreeUnread).toHaveBeenCalledWith('wt-1')
+    expect(deps.clearTerminalTabUnread).not.toHaveBeenCalled()
   })
 
   it('does not clear pane attention from raw onData after a bell', async () => {

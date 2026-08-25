@@ -450,7 +450,7 @@ describe('connectPanePty', () => {
     )
   })
 
-  it('does not raise pane attention on bell when the experimental setting is disabled', async () => {
+  it('raises pane attention on bell even with the experimental setting disabled', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport()
     transportFactoryQueue.push(transport)
@@ -474,7 +474,10 @@ describe('connectPanePty', () => {
 
     expect(deps.markWorktreeUnread).toHaveBeenCalledTimes(1)
     expect(deps.markTerminalTabUnread).toHaveBeenCalledWith('tab-1')
-    expect(deps.markTerminalPaneUnread).not.toHaveBeenCalled()
+    // Why: unread belongs to the terminal that rang. experimentalTerminalAttention
+    // only styles the pane container; it no longer decides whether the pane's
+    // unread exists, or a split's bell could not say which terminal rang.
+    expect(deps.markTerminalPaneUnread).toHaveBeenCalledWith(makePaneKey('tab-1', LEAF_1))
   })
 
   // Kill switch on (default): no byte parsers; pane policy is the PTY's single fact consumer (terminal-side-effect-authority.md).

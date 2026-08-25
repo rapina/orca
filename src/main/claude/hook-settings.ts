@@ -134,11 +134,15 @@ export function getWindowsManagedLifecycleHook(scriptPath: string): HookCommandC
     'agent-hooks',
     win32.basename(scriptPath)
   )
-  // Why: Claude's Windows shell form opens Git Bash consoles; exec form hosts the client in a windowless console.
+  // Why: Claude's Windows shell form opens Git Bash consoles, so the hook is
+  // installed in exec form. It must launch cmd.exe itself: hosting the script
+  // under `conhost.exe --headless` hands it a brand-new console whose stdin is
+  // not the hook payload, so the script read nothing, posted nothing, and panes
+  // never showed a turn (Windows 11 26200 also failed to launch the child at all).
   return {
     type: 'command',
-    command: win32.join(system32, 'conhost.exe'),
-    args: ['--headless', win32.join(system32, 'cmd.exe'), '/d', '/c', runtimeScriptPath],
+    command: win32.join(system32, 'cmd.exe'),
+    args: ['/d', '/c', runtimeScriptPath],
     timeout: MANAGED_HOOK_TIMEOUT_SECONDS
   }
 }
