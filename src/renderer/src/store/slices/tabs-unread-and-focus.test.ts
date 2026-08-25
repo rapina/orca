@@ -52,8 +52,9 @@ describe('TabsSlice', () => {
       expect(store.getState().unifiedTabsByWorktree[WT][0].isPreview).toBe(false)
     })
 
-    // Why (regression): activateTab gets a *unified* tabId but the bell is keyed by entityId, so it must resolve entityId or the bell won't clear on click.
-    it('clears unreadTerminalTabs for a terminal tab when its unified tab activates', () => {
+    // Why: a tab click is navigation, not a visit to the terminal that rang. Unread
+    // now clears where it is owned — on the terminal taking focus or being typed in.
+    it('keeps unreadTerminalTabs for a terminal tab when its unified tab activates', () => {
       const t1 = store.getState().createUnifiedTab(WT, 'terminal')
       const t2 = store.getState().createUnifiedTab(WT, 'terminal')
       // t2 is active after creation; move focus to t1 so we can mark t2 unread.
@@ -74,7 +75,7 @@ describe('TabsSlice', () => {
 
       store.getState().activateTab(t2.id)
 
-      expect(store.getState().unreadTerminalTabs[t2TerminalId]).toBeUndefined()
+      expect(store.getState().unreadTerminalTabs[t2TerminalId]).toBe(true)
     })
   })
 
@@ -248,6 +249,59 @@ describe('TabsSlice', () => {
   })
 
   // Called on real user interaction (xterm onData keystroke or pointerdown) — the dismissal half of show-until-interact.
+  // Why: the tab flag is a cache of "any of my terminals is unread". These pin the
+  // derivation so a sibling terminal can never be silenced by clearing another.
+  describe('pane-owned unread', () => {
+    const LEAF_A = '11111111-1111-4111-8111-111111111111'
+    const LEAF_B = '22222222-2222-4222-8222-222222222222'
+
+    it('raises the tab flag when a terminal goes unread', () => {
+      store.getState().markTerminalPaneUnread(`tab-1:${LEAF_A}`)
+
+      expect(store.getState().unreadTerminalTabs['tab-1']).toBe(true)
+    })
+
+    // Why: unread claims "this finished and you have not seen it". Once the same
+    // terminal starts working again the claim is stale, and leaving the bell up
+    // sends the user to a terminal that is already busy.
+    it('clears unread when the terminal starts another turn', () => {
+      const paneKey = `tab-1:${LEAF_A}`
+      store.getState().markAgentCompletionPaneUnread(paneKey)
+      expect(store.getState().unreadTerminalTabs['tab-1']).toBe(true)
+
+      store
+        .getState()
+        .setAgentStatus(paneKey, { state: 'working', prompt: 'resumed', agentType: 'codex' })
+
+      expect(store.getState().unreadAgentCompletionPanes[paneKey]).toBeUndefined()
+      expect(store.getState().unreadTerminalTabs['tab-1']).toBeUndefined()
+    })
+
+    it('keeps unread while the finished turn keeps reporting', () => {
+      const paneKey = `tab-1:${LEAF_A}`
+      store.getState().markTerminalPaneUnread(paneKey)
+
+      store
+        .getState()
+        .setAgentStatus(paneKey, { state: 'done', prompt: 'finished', agentType: 'codex' })
+
+      expect(store.getState().unreadTerminalPanes[paneKey]).toBe(true)
+    })
+
+    it('keeps the tab flag until the last unread terminal is cleared', () => {
+      store.getState().markTerminalPaneUnread(`tab-1:${LEAF_A}`)
+      store.getState().markAgentCompletionPaneUnread(`tab-1:${LEAF_B}`)
+
+      store.getState().clearTerminalPaneUnread(`tab-1:${LEAF_A}`)
+
+      expect(store.getState().unreadTerminalTabs['tab-1']).toBe(true)
+
+      store.getState().clearTerminalPaneUnread(`tab-1:${LEAF_B}`)
+
+      expect(store.getState().unreadTerminalTabs['tab-1']).toBeUndefined()
+    })
+  })
+
   describe('clearTerminalTabUnread', () => {
     it('removes the tab from unreadTerminalTabs', () => {
       const tabId = 'bell-tab-1'
@@ -315,8 +369,9 @@ describe('TabsSlice', () => {
       expect(store.getState().activeTabTypeByWorktree).toBe(before.activeTabTypeByWorktree)
     })
 
-    // Why: focusGroup fires on every pointerdown in the group chrome, so clearing the tab-level bell here is safe — the user is now viewing it.
-    it("clears the tab-level bell on the focused group's active tab", () => {
+    // Why: unread belongs to a terminal, and focusGroup fires on any pointerdown in
+    // the group chrome — including the tab strip — which is not a visit to the terminal.
+    it("keeps the tab-level bell on the focused group's active tab", () => {
       const tabA = store.getState().createUnifiedTab(WT, 'terminal')
       const groupAId = store.getState().groupsByWorktree[WT][0].id
       const groupBId = store.getState().createEmptySplitGroup(WT, groupAId, 'right')
@@ -336,11 +391,11 @@ describe('TabsSlice', () => {
       // Clicking Group A's chrome re-focuses it without calling activateTab (active tab unchanged).
       store.getState().focusGroup(WT, groupAId)
 
-      // Tab-level bell cleared — the user is now viewing this tab.
-      expect(store.getState().unreadTerminalTabs[tabA.entityId]).toBeUndefined()
+      // Still unread: the terminal itself has to take focus (or be typed in) to clear.
+      expect(store.getState().unreadTerminalTabs[tabA.entityId]).toBe(true)
     })
 
-    it('clears unread on every visible terminal tab across split groups', () => {
+    it('keeps unread on visible terminal tabs across split groups', () => {
       const tabA = store.getState().createUnifiedTab(WT, 'terminal')
       const groupAId = store.getState().groupsByWorktree[WT][0].id
       const groupBId = store.getState().createEmptySplitGroup(WT, groupAId, 'right')
@@ -357,11 +412,12 @@ describe('TabsSlice', () => {
         activeWorktreeId: WT
       })
 
-      // Why: both groups' active tabs are visible in a split, so neither keeps a stale unread bell once focused.
+      // Why: being on screen is not being visited. A split shows both terminals, but
+      // only the one that takes focus (or gets typed in) goes read.
       store.getState().focusGroup(WT, groupAId)
 
-      expect(store.getState().unreadTerminalTabs[tabA.entityId]).toBeUndefined()
-      expect(store.getState().unreadTerminalTabs[tabB.entityId]).toBeUndefined()
+      expect(store.getState().unreadTerminalTabs[tabA.entityId]).toBe(true)
+      expect(store.getState().unreadTerminalTabs[tabB.entityId]).toBe(true)
     })
   })
 })

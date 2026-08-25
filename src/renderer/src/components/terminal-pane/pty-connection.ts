@@ -1768,7 +1768,7 @@ export function connectPanePty(
     // their OSC title stuck on a working spinner. Replace only this fallback
     // title signal with a neutral terminal label so the existing process tracker
     // can still decide whether an agent TUI is truly alive.
-    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle)
+    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle, pane.leafId)
     if (manager.getActivePane()?.id === pane.id) {
       deps.updateTabTitle(deps.tabId, neutralTitle)
     }
@@ -2097,7 +2097,7 @@ export function connectPanePty(
       return
     }
     const neutralTitle = neutralTerminalTitle()
-    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle)
+    deps.setRuntimePaneTitle(deps.tabId, pane.id, neutralTitle, pane.leafId)
     if (manager.getActivePane()?.id === pane.id) {
       deps.updateTabTitle(deps.tabId, neutralTitle)
     }
@@ -2278,8 +2278,8 @@ export function connectPanePty(
       setPendingTerminalInputIntent('plain-escape')
       // Why: plain Escape produces real terminal input (\x1b), so it is a
       // genuine "user is here" signal and must still dismiss attention before
-      // the early return for interrupt-intent inference.
-      deps.clearTerminalTabUnread(deps.tabId)
+      // the early return for interrupt-intent inference. Clear this pane only —
+      // the tab flag is derived, so its other terminals keep their unread.
       deps.clearTerminalPaneUnread(cacheKey)
       deps.clearWorktreeUnread(deps.worktreeId)
       return
@@ -2319,7 +2319,8 @@ export function connectPanePty(
     if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       sampleVisiblePaneForegroundAgent()
     }
-    deps.clearTerminalTabUnread(deps.tabId)
+    // Why: typing dismisses only the terminal being typed in; the tab flag is
+    // derived from its panes, so siblings keep their unread.
     deps.clearTerminalPaneUnread(cacheKey)
     deps.clearWorktreeUnread(deps.worktreeId)
   }
@@ -2819,7 +2820,7 @@ export function connectPanePty(
       return
     }
     manager.setPaneGpuRendering(pane.id, decision.rendererPolicy.gpuEnabled)
-    deps.setRuntimePaneTitle(deps.tabId, pane.id, paneTitle)
+    deps.setRuntimePaneTitle(deps.tabId, pane.id, paneTitle, pane.leafId)
     // Why: a stale-derived cleared title comes from main's unthrottled 3s
     // timer, not agent output. It must update the visible title but never
     // feed completion tracking — observeTitle would classify the cleared
@@ -3105,9 +3106,10 @@ export function connectPanePty(
     // decision higher up, not a transport-layer guess.
     deps.markWorktreeUnread(deps.worktreeId)
     deps.markTerminalTabUnread(deps.tabId)
-    if (useAppStore.getState().settings?.experimentalTerminalAttention === true) {
-      deps.markTerminalPaneUnread(cacheKey)
-    }
+    // Why: unread is owned per terminal, so the pane that rang always carries
+    // it. experimentalTerminalAttention now only styles the pane container; it
+    // no longer decides whether the pane's unread exists.
+    deps.markTerminalPaneUnread(cacheKey)
     // Why: agent CLIs often emit BEL in the same completion burst as their
     // working->idle title change. Delay only the OS notification so the richer
     // agent-complete notification can win the main-process worktree cooldown.

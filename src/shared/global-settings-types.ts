@@ -137,6 +137,8 @@ export type GlobalSettings = {
   terminalThemeLight: string
   terminalDividerColorLight: string
   terminalInactivePaneOpacity: number
+  /** Ring drawn around a terminal that is unread. Off leaves the bells as the only cue. */
+  terminalUnreadOutline: boolean
   terminalActivePaneOpacity: number
   terminalPaneOpacityTransitionMs: number
   terminalDividerThicknessPx: number

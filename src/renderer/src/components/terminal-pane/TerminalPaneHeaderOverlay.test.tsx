@@ -50,9 +50,11 @@ function renderOverlay({
   canContinueAgentSessionInNewSession = false,
   onContinueAgentSessionInNewSession = vi.fn(),
   renameValue = '',
-  renamingPaneId = null
+  renamingPaneId = null,
+  unreadLeafIds = new Set<string>()
 }: {
   paneTitles: Record<number, string>
+  unreadLeafIds?: ReadonlySet<string>
   paneCount?: number
   showAlwaysOnHeaders?: boolean
   showSplitButton?: boolean
@@ -85,6 +87,7 @@ function renderOverlay({
         activePaneId={1}
         panes={panes}
         paneTitles={paneTitles}
+        unreadLeafIds={unreadLeafIds}
         paneTitleOverlayRects={{
           1: { left: 0, top: 0, width: 200 },
           2: { left: 220, top: 0, width: 200 }
@@ -223,5 +226,30 @@ describe('TerminalPaneHeaderOverlay', () => {
     expect(onContinueAgentSessionInNewSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 1 })
     )
+  })
+
+  it('bells only the unread pane, not its siblings', () => {
+    const { container } = renderOverlay({
+      paneTitles: { 1: 'server', 2: 'agent' },
+      unreadLeafIds: new Set(['leaf-2'])
+    })
+
+    const bells = container.querySelectorAll('[data-testid="pane-unread-bell"]')
+
+    expect(bells).toHaveLength(1)
+    expect(bells[0]?.getAttribute('data-leaf-id')).toBe('leaf-2')
+  })
+
+  it('reveals a header for an untitled unread pane when headers are not always on', () => {
+    const { container } = renderOverlay({
+      paneTitles: { 1: '', 2: '' },
+      showAlwaysOnHeaders: false,
+      unreadLeafIds: new Set(['leaf-1'])
+    })
+
+    const bells = container.querySelectorAll('[data-testid="pane-unread-bell"]')
+
+    expect(bells).toHaveLength(1)
+    expect(bells[0]?.getAttribute('data-leaf-id')).toBe('leaf-1')
   })
 })

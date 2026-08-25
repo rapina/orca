@@ -46,7 +46,8 @@ export function createWorktreePurgeOmitters(
         tab === 'workspaces' ||
         tab === 'source-control' ||
         tab === 'checks' ||
-        tab === 'ports'
+        tab === 'ports' ||
+        tab === 'terminals'
       ) {
         out[id] = tab
       } else {

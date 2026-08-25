@@ -186,6 +186,37 @@ function isRemoteRuntimePtyId(ptyId: string | null | undefined): boolean {
   return typeof ptyId === 'string' && parseRemoteRuntimePtyId(ptyId) !== null
 }
 
+/**
+ * Unread belongs to a terminal (pane); `unreadTerminalTabs` is the derived cache
+ * its readers (tab bell, dock badge, palettes) use so none of them has to scan
+ * every pane key on each render.
+ */
+function tabHasUnreadPane(
+  tabId: string,
+  unreadTerminalPanes: Record<string, true>,
+  unreadAgentCompletionPanes: Record<string, true>
+): boolean {
+  for (const map of [unreadTerminalPanes, unreadAgentCompletionPanes]) {
+    for (const paneKey of Object.keys(map)) {
+      if (parsePaneKey(paneKey)?.tabId === tabId) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function owningTabUnreadPatch(
+  state: AppState,
+  paneKey: string
+): { unreadTerminalTabs: Record<string, true> } | Record<string, never> {
+  const tabId = parsePaneKey(paneKey)?.tabId
+  if (tabId === undefined || state.unreadTerminalTabs[tabId]) {
+    return {}
+  }
+  return { unreadTerminalTabs: { ...state.unreadTerminalTabs, [tabId]: true as const } }
+}
+
 function isCurrentDirectSshAuthority(state: AppState, authority: DirectSshAuthority): boolean {
   const current = state.sshConnectionStates.get(authority.targetId)
   return Boolean(
@@ -519,7 +550,15 @@ export type TerminalSlice = {
   ptyIdsByTabId: Record<string, string[]>
   /** Live pane titles by tabId then paneId; preserves per-pane agent status (unlike the legacy tab title) while TerminalPane is mounted. */
   runtimePaneTitlesByTabId: Record<string, Record<number, string>>
-  /** Per-tab unread flags (BEL or agent-complete); ephemeral UI state, not persisted. Cleared when the user activates/interacts with the tab. */
+  /** The same live titles keyed by the durable layout leaf, for surfaces outside a
+   *  mounted TerminalPane. Why both: the numeric pane id is renderer-local and only
+   *  the owning PaneManager can map it, so a global list (terminal list, tab strip)
+   *  has no way back from a leaf to its title without this. Entries are read through
+   *  the live layout, so ones left by a closed pane never surface. */
+  runtimePaneTitlesByLeafId: Record<string, Record<string, string>>
+  /** Derived cache: a tab is flagged while any of its terminals is unread. Written
+   *  only alongside the pane maps — never on its own, and never cleared by activating
+   *  the tab. Ephemeral UI state, not persisted. */
   unreadTerminalTabs: Record<string, true>
   /** Pane-keyed attention marker (narrower than unreadTerminalTabs); clears when the user interacts with the exact pane that raised it. */
   unreadTerminalPanes: Record<string, true>
@@ -661,7 +700,9 @@ export type TerminalSlice = {
   ) => void
   setGeneratedTabTitlesFromAgentPrompts: (updates: readonly GeneratedTabTitleUpdate[]) => void
   clearTabLaunchAgent: (tabId: string) => void
-  setRuntimePaneTitle: (tabId: string, paneId: number, title: string) => void
+  /** `leafId` also records the title against the durable layout leaf so surfaces
+   *  outside the owning PaneManager can name that terminal. */
+  setRuntimePaneTitle: (tabId: string, paneId: number, title: string, leafId?: string) => void
   clearRuntimePaneTitle: (tabId: string, paneId: number) => void
   /** Mark a tab unread (agent working→idle); skipped when the tab is visible, since a "seen" flag would never clear. */
   markTerminalTabUnread: (tabId: string) => void
@@ -1048,6 +1089,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   activeTabIdByWorktree: {},
   ptyIdsByTabId: {},
   runtimePaneTitlesByTabId: {},
+  runtimePaneTitlesByLeafId: {},
   unreadTerminalTabs: {},
   unreadTerminalPanes: {},
   unreadAgentCompletionPanes: {},
@@ -1671,6 +1713,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       delete nextPendingReconnectPtyIdByTabId[tabId]
       const nextRuntimePaneTitlesByTabId = { ...s.runtimePaneTitlesByTabId }
       delete nextRuntimePaneTitlesByTabId[tabId]
+      const nextRuntimePaneTitlesByLeafId = { ...s.runtimePaneTitlesByLeafId }
+      delete nextRuntimePaneTitlesByLeafId[tabId]
       const nextDirectSshPaneRetryByTabId = { ...s.directSshPaneRetryByTabId }
       delete nextDirectSshPaneRetryByTabId[tabId]
       const nextDirectSshLivePtyBindingByTabId = {
@@ -1783,6 +1827,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         deferredSshSessionIdsByTabId: nextDeferredSshSessionIdsByTabId,
         pendingReconnectPtyIdByTabId: nextPendingReconnectPtyIdByTabId,
         runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
+        runtimePaneTitlesByLeafId: nextRuntimePaneTitlesByLeafId,
         directSshPaneRetryByTabId: nextDirectSshPaneRetryByTabId,
         directSshLivePtyBindingByTabId: nextDirectSshLivePtyBindingByTabId,
         directSshPaneRetryHistoryByTabId: nextDirectSshPaneRetryHistoryByTabId,
@@ -2090,12 +2135,21 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     })
   },
 
-  setRuntimePaneTitle: (tabId, paneId, title) => {
+  setRuntimePaneTitle: (tabId, paneId, title, leafId) => {
     set((s) => {
       const currentByPane = s.runtimePaneTitlesByTabId[tabId] ?? {}
       const prevTitle = currentByPane[paneId]
+      const leafPatch =
+        leafId === undefined || s.runtimePaneTitlesByLeafId[tabId]?.[leafId] === title
+          ? {}
+          : {
+              runtimePaneTitlesByLeafId: {
+                ...s.runtimePaneTitlesByLeafId,
+                [tabId]: { ...s.runtimePaneTitlesByLeafId[tabId], [leafId]: title }
+              }
+            }
       if (prevTitle === title) {
-        return s
+        return Object.keys(leafPatch).length > 0 ? leafPatch : s
       }
       if (prevTitle && isDecorativeAgentTitleFrameChange(prevTitle, title)) {
         return s
@@ -2114,6 +2168,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           ...s.runtimePaneTitlesByTabId,
           [tabId]: { ...currentByPane, [paneId]: title }
         },
+        ...leafPatch,
         ...(shouldBump ? { sortEpoch: s.sortEpoch + 1 } : {})
       }
     })
@@ -2173,7 +2228,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       if (s.unreadTerminalPanes[paneKey]) {
         return s
       }
-      return { unreadTerminalPanes: { ...s.unreadTerminalPanes, [paneKey]: true as const } }
+      return {
+        unreadTerminalPanes: { ...s.unreadTerminalPanes, [paneKey]: true as const },
+        ...owningTabUnreadPatch(s, paneKey)
+      }
     })
   },
 
@@ -2186,7 +2244,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         unreadAgentCompletionPanes: {
           ...s.unreadAgentCompletionPanes,
           [paneKey]: true as const
-        }
+        },
+        ...owningTabUnreadPatch(s, paneKey)
       }
     })
   },
@@ -2211,9 +2270,24 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const nextUnreadAgentCompletionPanes = { ...s.unreadAgentCompletionPanes }
       delete nextUnreadTerminalPanes[paneKey]
       delete nextUnreadAgentCompletionPanes[paneKey]
+      // Why: the tab flag is derived from its panes. Clearing one terminal must
+      // not dismiss its siblings, so the tab only goes read once its last unread
+      // pane is cleared.
+      const tabId = parsePaneKey(paneKey)?.tabId
+      const tabStillUnread =
+        tabId !== undefined &&
+        tabHasUnreadPane(tabId, nextUnreadTerminalPanes, nextUnreadAgentCompletionPanes)
+      let nextUnreadTerminalTabs = s.unreadTerminalTabs
+      if (tabId !== undefined && !tabStillUnread && s.unreadTerminalTabs[tabId]) {
+        nextUnreadTerminalTabs = { ...s.unreadTerminalTabs }
+        delete nextUnreadTerminalTabs[tabId]
+      }
       return {
         unreadTerminalPanes: nextUnreadTerminalPanes,
-        unreadAgentCompletionPanes: nextUnreadAgentCompletionPanes
+        unreadAgentCompletionPanes: nextUnreadAgentCompletionPanes,
+        ...(nextUnreadTerminalTabs !== s.unreadTerminalTabs
+          ? { unreadTerminalTabs: nextUnreadTerminalTabs }
+          : {})
       }
     })
   },
@@ -2828,6 +2902,22 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         }
       }
 
+      // Why the leaf map too: it was added beside the by-pane map but only the tab-close
+      // path learned to prune it, so every closed pane left an entry behind for the
+      // renderer's lifetime. Reads go through the live layout, so a stale entry never
+      // surfaces — it just never goes away either.
+      let nextRuntimePaneTitlesByLeafId = s.runtimePaneTitlesByLeafId
+      if (s.runtimePaneTitlesByLeafId[opts.tabId]?.[opts.leafId]) {
+        const nextByLeaf = { ...s.runtimePaneTitlesByLeafId[opts.tabId] }
+        delete nextByLeaf[opts.leafId]
+        nextRuntimePaneTitlesByLeafId = { ...s.runtimePaneTitlesByLeafId }
+        if (Object.keys(nextByLeaf).length > 0) {
+          nextRuntimePaneTitlesByLeafId[opts.tabId] = nextByLeaf
+        } else {
+          delete nextRuntimePaneTitlesByLeafId[opts.tabId]
+        }
+      }
+
       const nextUnreadTerminalPanes = { ...s.unreadTerminalPanes }
       const nextUnreadAgentCompletionPanes = { ...s.unreadAgentCompletionPanes }
       const nextLastTerminalInputAtByPaneKey = { ...s.lastTerminalInputAtByPaneKey }
@@ -2849,6 +2939,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         codexRestartNoticeByPtyId: nextCodexRestartNoticeByPtyId,
         ...(nextRuntimePaneTitlesByTabId !== s.runtimePaneTitlesByTabId
           ? { runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId }
+          : {}),
+        ...(nextRuntimePaneTitlesByLeafId !== s.runtimePaneTitlesByLeafId
+          ? { runtimePaneTitlesByLeafId: nextRuntimePaneTitlesByLeafId }
           : {}),
         unreadTerminalPanes: nextUnreadTerminalPanes,
         unreadAgentCompletionPanes: nextUnreadAgentCompletionPanes,
