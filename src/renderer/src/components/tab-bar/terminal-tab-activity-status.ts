@@ -164,11 +164,6 @@ export function resolveTerminalTabActivityStatus({
   })
 }
 
-/** True while the tab shows a live in-turn signal (spinner or needs-input). */
-export function isTerminalTabActivityLive(status: TerminalTabActivityStatus): boolean {
-  return status === 'working' || status === 'permission'
-}
-
 /**
  * Glyph-bearing attention states for a terminal tab (tab bar + Cmd+J recent chats).
  * Quiet active/inactive map to null so identity icons stay clean.
@@ -177,7 +172,12 @@ export type TerminalTabAttentionBadge = 'working' | 'permission' | 'unread' | 'd
 
 /**
  * Single priority ladder shared by the tab strip and Cmd+J recent rows:
- * in-turn (working / permission) → unread bell → freshly done check.
+ * unread bell → in-turn (working / permission) → freshly done check.
+ *
+ * Why unread first: a tab holds several terminals, and a terminal that finished
+ * without being seen is the one asking for the user. Another terminal still
+ * running is work in progress and must not hide that ask — otherwise a busy tab
+ * looks identical whether or not something is waiting in it.
  */
 export function resolveTerminalTabAttentionBadge({
   status,
@@ -186,14 +186,14 @@ export function resolveTerminalTabAttentionBadge({
   status: WorktreeStatus | null | undefined
   hasUnread: boolean
 }): TerminalTabAttentionBadge | null {
+  if (hasUnread) {
+    return 'unread'
+  }
   if (status === 'working') {
     return 'working'
   }
   if (status === 'permission') {
     return 'permission'
-  }
-  if (hasUnread) {
-    return 'unread'
   }
   if (status === 'done') {
     return 'done'
