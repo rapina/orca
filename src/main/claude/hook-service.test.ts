@@ -38,8 +38,8 @@ describe('getWindowsManagedLifecycleHook', () => {
     const scriptPath = 'C:\\Users\\%name%\\a^b&c\\.orca\\agent-hooks\\claude-hook.cmd'
     const hook = getWindowsManagedLifecycleHook(scriptPath)
 
-    expect(hook.args?.[0]).toBe('--headless')
-    expect(hook.args?.[1]).toMatch(/\\System32\\cmd\.exe$/i)
+    expect(hook.command).toMatch(/cmd[.]exe$/i)
+    expect(hook.args?.[0]).toBe('/d')
     expect(hook.args?.at(-1)).toBe('%USERPROFILE%\\.orca\\agent-hooks\\claude-hook.cmd')
     expect(hook.args).not.toContain(scriptPath)
   })
@@ -362,10 +362,13 @@ describe('ClaudeHookService.install', () => {
 
         for (const eventName of ['UserPromptSubmit', 'Stop', 'StopFailure']) {
           const hook = settings.hooks[eventName]?.[0]?.hooks?.[0]
+          // Why: cmd.exe must be the command itself. Wrapping it in
+          // `conhost.exe --headless` gave the script a fresh console whose stdin
+          // was not the hook payload, so no hook ever reached the app.
           expect(hook).toEqual({
             type: 'command',
-            command: join(system32, 'conhost.exe'),
-            args: ['--headless', join(system32, 'cmd.exe'), '/d', '/c', runtimeScriptPath],
+            command: join(system32, 'cmd.exe'),
+            args: ['/d', '/c', runtimeScriptPath],
             timeout: 10
           })
           expect(hook.args).not.toContain(scriptPath)
