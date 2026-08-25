@@ -4879,7 +4879,24 @@ const api = {
       ptyId?: string
     }): void => {
       ipcRenderer.send('agentStatus:transferPaneAuthority', args)
-    }
+    },
+    readSessionTurn: (args: { transcriptPath: string }): Promise<string | null> =>
+      ipcRenderer.invoke('agentStatus:readSessionTurn', args),
+    bindSessionPane: (args: { sessionId: string; paneKey: string }): void => {
+      ipcRenderer.send('agentStatus:bindSessionPane', args)
+    },
+    listSessionPaneBindings: (): Promise<Record<string, string>> =>
+      ipcRenderer.invoke('agentStatus:listSessionPaneBindings'),
+    readTerminalContexts: (args: {
+      terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
+    }): Promise<
+      {
+        paneKey: string
+        worktreeName?: string
+        branch?: string
+        pullRequestUrls: string[]
+      }[]
+    > => ipcRenderer.invoke('agentStatus:readTerminalContexts', args)
   },
 
   speech: {

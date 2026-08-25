@@ -39,6 +39,22 @@ afterEach(() => {
 })
 
 describe('agent pane authority', () => {
+  // Why this survives while the late `done` above does not: an agent outlives the
+  // terminal it was started in whenever a background-job host owns it, and it keeps
+  // reporting that pane forever. Dropping those left a running turn with no sign of
+  // it anywhere on screen — no row, no icon, nothing to act on.
+  it('keeps a turn that is still running on a pane that is gone', () => {
+    const store = createTestStore()
+    store.getState().setAgentStatus(TARGET, { state: 'working', prompt: 'first' })
+    store.getState().retireAgentPaneAuthority(TARGET)
+
+    store.getState().setAgentStatus(TARGET, { state: 'working', prompt: 'still going' })
+
+    expect(store.getState().agentStatusByPaneKey[TARGET]).toMatchObject({
+      state: 'working',
+      prompt: 'still going'
+    })
+  })
   it('retires one pane, clears resume authority, and rejects late status without harming siblings', () => {
     const store = createTestStore()
     store.getState().setAgentStatus(TARGET, { state: 'working', prompt: 'target' })

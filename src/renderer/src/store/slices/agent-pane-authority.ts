@@ -29,8 +29,99 @@ export type AgentPaneAuthorityTransfer = {
   ptyId: string | null
 }
 
-export function resolveAgentPaneAuthorityKey(paneKey: string): string {
-  return aliasesByPhysicalPaneKey.get(paneKey)?.ownerPaneKey ?? paneKey
+/**
+ * Terminals a specific agent session was bound to by hand, overriding the pane
+ * key its hook reports.
+ *
+ * Why keyed by session and not by pane: every background-job session reports the
+ * pane key of the terminal that started their shared host, so they all claim one
+ * pane. Re-pointing that pane would drag the other sessions along with the one
+ * being corrected; only the session itself may move.
+ */
+const ownerPaneKeyBySessionId = new Map<string, string>()
+const MAX_AGENT_SESSION_PANE_BINDINGS = 256
+
+/**
+ * Sessions that were moved off a pane, kept by the pane they left.
+ *
+ * Why: not every agent event names the session it belongs to. A finished turn
+ * arrives as a pane-level notification, so without this the status row moves to
+ * the terminal the agent is really in and the unread it leaves behind stays on
+ * the one it was never in.
+ */
+const movedSessionsBySourcePaneKey = new Map<string, Map<string, string>>()
+
+export function bindAgentSessionPane(
+  sessionId: string,
+  paneKey: string,
+  fromPaneKey?: string
+): boolean {
+  if (!sessionId || !parsePaneKey(paneKey)) {
+    return false
+  }
+  for (const moved of movedSessionsBySourcePaneKey.values()) {
+    // Why: a session moved twice must not still count against the pane it left first.
+    moved.delete(sessionId)
+  }
+  if (fromPaneKey && fromPaneKey !== paneKey) {
+    const moved = movedSessionsBySourcePaneKey.get(fromPaneKey) ?? new Map<string, string>()
+    moved.set(sessionId, paneKey)
+    movedSessionsBySourcePaneKey.set(fromPaneKey, moved)
+  }
+  // Why delete first: re-insert so a refreshed binding is not the eviction victim.
+  ownerPaneKeyBySessionId.delete(sessionId)
+  ownerPaneKeyBySessionId.set(sessionId, paneKey)
+  while (ownerPaneKeyBySessionId.size > MAX_AGENT_SESSION_PANE_BINDINGS) {
+    const oldestSessionId = ownerPaneKeyBySessionId.keys().next().value
+    if (!oldestSessionId) {
+      break
+    }
+    ownerPaneKeyBySessionId.delete(oldestSessionId)
+  }
+  return true
+}
+
+/**
+ * Take the bindings remembered from earlier runs.
+ *
+ * Why on boot and not per event: a hook keeps reporting the pane its process was
+ * born with for as long as that agent runs, which outlasts one Orca run. Without
+ * this every restart put a corrected agent back on the terminal it was never in.
+ */
+export function hydrateAgentSessionPaneBindings(bindings: Record<string, string>): void {
+  for (const [sessionId, paneKey] of Object.entries(bindings)) {
+    if (!ownerPaneKeyBySessionId.has(sessionId)) {
+      bindAgentSessionPane(sessionId, paneKey)
+    }
+  }
+}
+
+/**
+ * The pane that owns this status. A hand-made session binding wins over the
+ * reported pane key; pane aliases still apply on top, so a corrected session
+ * follows its terminal through a later detach.
+ */
+export function resolveAgentPaneAuthorityKey(paneKey: string, sessionId?: string): string {
+  const boundPaneKey = sessionId ? ownerPaneKeyBySessionId.get(sessionId) : undefined
+  const startPaneKey = boundPaneKey ?? paneKey
+  return aliasesByPhysicalPaneKey.get(startPaneKey)?.ownerPaneKey ?? startPaneKey
+}
+
+/**
+ * Where a pane's agent events belong after its moved session left it.
+ *
+ * Null when the pane gave up no session, or gave up more than one - an event that
+ * does not name its session cannot be attributed then, and guessing would drop it
+ * on a terminal it was never in. Callers must also check the pane is not holding a
+ * live agent of its own, which owns the event if so.
+ */
+export function resolveMovedAgentPaneKey(paneKey: string): string | null {
+  const moved = movedSessionsBySourcePaneKey.get(paneKey)
+  if (!moved || moved.size !== 1) {
+    return null
+  }
+  const [sessionId] = [...moved.keys()]
+  return sessionId ? resolveAgentPaneAuthorityKey(paneKey, sessionId) : null
 }
 
 export function transferAgentPaneAuthorityAlias(args: {
@@ -126,6 +217,28 @@ export function forgetAgentPaneAuthorityAliasesByTabIds(tabIds: Iterable<string>
       aliasesByPhysicalPaneKey.delete(physicalPaneKey)
     }
   }
+  for (const [sessionId, boundPaneKey] of ownerPaneKeyBySessionId) {
+    const boundTabId = parsePaneKey(boundPaneKey)?.tabId
+    if (boundTabId && doomedTabIds.has(boundTabId)) {
+      ownerPaneKeyBySessionId.delete(sessionId)
+    }
+  }
+  for (const [sourcePaneKey, moved] of movedSessionsBySourcePaneKey) {
+    const sourceTabId = parsePaneKey(sourcePaneKey)?.tabId
+    if (sourceTabId && doomedTabIds.has(sourceTabId)) {
+      movedSessionsBySourcePaneKey.delete(sourcePaneKey)
+      continue
+    }
+    for (const [sessionId, targetPaneKey] of moved) {
+      const targetTabId = parsePaneKey(targetPaneKey)?.tabId
+      if (targetTabId && doomedTabIds.has(targetTabId)) {
+        moved.delete(sessionId)
+      }
+    }
+    if (moved.size === 0) {
+      movedSessionsBySourcePaneKey.delete(sourcePaneKey)
+    }
+  }
 }
 
 export function countAgentPaneAuthorityAliasesForTests(): number {
@@ -134,4 +247,6 @@ export function countAgentPaneAuthorityAliasesForTests(): number {
 
 export function resetAgentPaneAuthorityAliasesForTests(): void {
   aliasesByPhysicalPaneKey.clear()
+  ownerPaneKeyBySessionId.clear()
+  movedSessionsBySourcePaneKey.clear()
 }

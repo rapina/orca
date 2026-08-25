@@ -156,7 +156,11 @@ import { titleHasAgentName } from '../../../shared/agent-detection'
 import { isDecorativeAgentTitleFrameChange } from '../../../shared/agent-decorative-title-signature'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { resolveTerminalWorktreeRoute } from '@/lib/terminal-worktree-route'
-import { resolveAgentPaneAuthorityKey } from '@/store/slices/agent-pane-authority'
+import {
+  hydrateAgentSessionPaneBindings,
+  resolveAgentPaneAuthorityKey
+} from '@/store/slices/agent-pane-authority'
+import { paneIsInALayout } from '@/store/slices/agent-status'
 import type {
   AgentStatusBatchTransaction,
   AgentStatusBatchUpdate,
@@ -310,18 +314,54 @@ const WORKTREE_RENAME_PURGE_GRACE_MS = 20_000
 const recentlyRenamedWorktreeIdExpiry = new Map<string, number>()
 
 function isAgentStatusForRecentlyClosedTab(
-  store: Pick<AppState, 'recentlyClosedAgentStatusTabIds' | 'recentlyRetiredAgentStatusPaneKeys'>,
-  paneKey: string
+  store: Pick<
+    AppState,
+    | 'recentlyClosedAgentStatusTabIds'
+    | 'recentlyRetiredAgentStatusPaneKeys'
+    | 'tabsByWorktree'
+    | 'terminalLayoutsByTabId'
+  >,
+  paneKey: string,
+  sessionId?: string,
+  state?: string
 ): boolean {
-  const ownerPaneKey = resolveAgentPaneAuthorityKey(paneKey)
+  const ownerPaneKey = resolveAgentPaneAuthorityKey(paneKey, sessionId)
   if (store.recentlyRetiredAgentStatusPaneKeys?.[ownerPaneKey] === true) {
-    return true
+    if (state === 'done') {
+      // Why: a finished turn arriving after the pane closed is that pane's tail,
+      // which is exactly what this guard was written for.
+      return true
+    }
+    // Why not an unconditional drop: an agent outlives the terminal it was started
+    // in whenever a background-job host owns it, and it keeps reporting that pane
+    // forever. Dropping those left a running turn with no sign of it anywhere at
+    // all. A pane that no layout has any more cannot get a terminal row back either
+    // way, so what survives here is the agent, which the list shows as unattached
+    // and offers to move. A pane that is still in a layout keeps failing closed —
+    // that is the dismissed row this guard was written for.
+    return paneIsInALayout(store, ownerPaneKey)
   }
   const tabId = parsePaneKey(ownerPaneKey)?.tabId
   if (!tabId) {
     return false
   }
-  return store.recentlyClosedAgentStatusTabIds[tabId] === true
+  if (store.recentlyClosedAgentStatusTabIds[tabId] !== true) {
+    return false
+  }
+  // Why the tab is looked up: this set is only ever added to, so a tab closed once
+  // stayed deaf to every pane inside it for the rest of the run — reopening it
+  // changed nothing and its agents ran with no sign of them anywhere. A tab that is
+  // in the workspace again is open, whatever the set still remembers.
+  return !isOpenTabId(store, tabId)
+}
+
+function isOpenTabId(store: Pick<AppState, 'tabsByWorktree'>, tabId: string): boolean {
+  for (const tabs of Object.values(store.tabsByWorktree ?? {})) {
+    if (tabs.some((tab) => tab.id === tabId)) {
+      return true
+    }
+  }
+  return false
 }
 
 function getAuthoritativeDetectedWorktreeIds(state: AppState, repoId: string): Set<string> | null {
@@ -782,11 +822,14 @@ export function useIpcEvents(): void {
       data: AgentStatusIpcPayload
       replay?: boolean
       retry?: boolean
+      adoptWithoutPane?: boolean
     }
     type AgentStatusApplyOptions = {
       replay?: boolean
       retry?: boolean
       batch?: AgentStatusBatchContext
+      /** Waited out the pending TTL: take the row even though no pane claims it. */
+      adoptWithoutPane?: boolean
     }
     const pendingAgentStatusEvents: PendingAgentStatusEvent[] = []
     const transientClearWatermarkByConnectionId = new Map<string, number>()
@@ -3131,13 +3174,20 @@ export function useIpcEvents(): void {
       isFlushingAgentStatuses = true
       try {
         const now = Date.now()
-        const candidates = pendingAgentStatusEvents
-          .splice(0)
-          .filter((event) => now - event.firstSeenAt <= PENDING_AGENT_STATUS_TTL_MS)
+        // Why the expired ones are applied rather than discarded: waiting this long
+        // means no pane is coming, and an agent that is still running has to be
+        // reachable somewhere. Dropping them silently is what left a live turn with
+        // no sign of it anywhere on screen.
+        const candidates = pendingAgentStatusEvents.splice(0)
         let results: AgentStatusApplyResult[]
         try {
           results = applyAgentStatusBatch(
-            candidates.map((event) => ({ data: event.data, replay: event.replay, retry: true }))
+            candidates.map((event) => ({
+              data: event.data,
+              replay: event.replay,
+              retry: true,
+              adoptWithoutPane: now - event.firstSeenAt > PENDING_AGENT_STATUS_TTL_MS
+            }))
           )
         } catch (err) {
           // Why: the queue was already spliced, so a throwing fold would drop the whole
@@ -3168,10 +3218,17 @@ export function useIpcEvents(): void {
       if (!store.workspaceSessionReady) {
         return 'dropped'
       }
-      if (isAgentStatusForRecentlyClosedTab(store, data.paneKey)) {
+      if (
+        isAgentStatusForRecentlyClosedTab(store, data.paneKey, data.providerSession?.id, data.state)
+      ) {
         return 'dropped'
       }
-      const paneKey = resolveAgentPaneAuthorityKey(data.paneKey)
+      // Why the session id: a hand-made binding moves one agent session off the
+      // pane key its hook reports. Everything this function derives - the unread
+      // a finished turn leaves, tab attribution, retirement checks - has to land
+      // on the same pane the status row does, or the row moves and its unread
+      // stays behind on the terminal the agent was never in.
+      const paneKey = resolveAgentPaneAuthorityKey(data.paneKey, data.providerSession?.id)
       const ownerTabId = parsePaneKey(paneKey)?.tabId ?? data.tabId
       const payload = normalizeAgentStatusPayload({
         state: data.state,
@@ -3222,6 +3279,21 @@ export function useIpcEvents(): void {
           repoConnectionResolved = fallbackOwnership.repoConnectionResolved
           exists = true
         }
+      }
+      // Why only after the wait: a pane that has not mounted yet and one that is
+      // gone for good look identical here, and buffering is right for the first. An
+      // agent outlives the terminal it was started in whenever a background-job host
+      // owns it, and keeps reporting that pane for as long as it runs — so once the
+      // pending TTL has passed with no pane, the wait is what is wrong, not the row.
+      // The terminal list shows it unattached and offers the move that puts it right.
+      // A finished turn is left out: nothing to act on, keyed to a terminal that is gone.
+      if (
+        !exists &&
+        options?.adoptWithoutPane === true &&
+        owningWorktreeId !== undefined &&
+        data.state !== 'done'
+      ) {
+        exists = true
       }
       if (!exists) {
         // Why: startup snapshot replay can beat tab/layout hydration too.
@@ -3438,6 +3510,22 @@ export function useIpcEvents(): void {
       return 'applied'
     }
 
+    // Why here and not beside the snapshot pull: a binding made in an earlier run has
+    // to be in hand before pane-keyed rows are routed, and this runs long before the
+    // workspace session is ready enough to ask for them. Putting it in the snapshot
+    // path would delay the snapshot by a turn of the event loop for every start.
+    // Why Promise.resolve wraps it: the api surface is stubbed in places that hand
+    // back a plain value, and a hydration that throws here takes the whole effect
+    // — every IPC subscription below it — down with it.
+    void Promise.resolve(window.api?.agentStatus?.listSessionPaneBindings?.() ?? {})
+      .then((bindings) => {
+        if (bindings && typeof bindings === 'object') {
+          hydrateAgentSessionPaneBindings(bindings as Record<string, string>)
+        }
+      })
+      .catch(() => {
+        // Why swallowed: a lost binding costs one correction, nothing else.
+      })
     let snapshotRequestedForReadyWindow = false
     let snapshotRequestId = 0
     const requestAgentStatusSnapshotIfReady = (): void => {
@@ -3509,8 +3597,8 @@ export function useIpcEvents(): void {
           tabTitlesByTabId: new Map(),
           notificationEffects: []
         }
-        const results = events.map(({ data, replay, retry }) =>
-          applyAgentStatus(data, { batch, replay, retry })
+        const results = events.map(({ data, replay, retry, adoptWithoutPane }) =>
+          applyAgentStatus(data, { batch, replay, retry, adoptWithoutPane })
         )
         if (batch.tabTitlesByTabId.size > 0) {
           transaction.afterCommit(() => {

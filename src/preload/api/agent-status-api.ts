@@ -36,6 +36,24 @@ export type AgentStatusApi = {
   retirePaneAuthority: (paneKey: string) => void
   /** Move hook authority when a live pane is detached into another tab. */
   transferPaneAuthority: (args: { fromPaneKey: string; toPaneKey: string; ptyId?: string }) => void
+  /** The last thing one session said, read from its own transcript, so a person
+   *  can tell which agent a status belongs to before moving it. */
+  readSessionTurn: (args: { transcriptPath: string }) => Promise<string | null>
+  /** Remember which terminal an agent session was bound to, across restarts. */
+  bindSessionPane: (args: { sessionId: string; paneKey: string }) => void
+  listSessionPaneBindings: () => Promise<Record<string, string>>
+  /** What each terminal is working on: the folder its agent is in, and the pull
+   *  requests its own output has shown. */
+  readTerminalContexts: (args: {
+    terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
+  }) => Promise<
+    {
+      paneKey: string
+      worktreeName?: string
+      branch?: string
+      pullRequestUrls: string[]
+    }[]
+  >
 }
 
 export type AgentTrustApi = {
