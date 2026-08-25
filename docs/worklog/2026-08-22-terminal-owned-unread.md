@@ -215,6 +215,10 @@
 
 ## 새 릴리스 따라가기
 
+브랜치 구실은 셋으로 나뉜다. `base/v<버전>`은 순정 릴리스 그대로 두는 **비교 기준점**,
+`custom`은 릴리스에 이 포크의 수정을 얹은 **빌드용 상시 브랜치**, `main`은 upstream 추적용으로
+건드리지 않는다. 기능 작업은 `custom`에서 갈라 나와 PR로 `custom`에 머지한다.
+
 이 포크는 upstream **릴리스 갈래** 위에 얹혀 있다(`d802fdc742 release: v1.4.186`). `upstream/main`이
 아니라 릴리스를 따라간다 — main은 개발 중이라 그때그때 상태가 다르고, 지금 base와 계열이 달라
 충돌이 더 난다.
@@ -225,14 +229,14 @@
 
 ```bash
 git fetch upstream
-git checkout feat/terminal-owned-unread
+git checkout custom
 git merge upstream/release/<새 버전>
 # 충돌 해결
 corepack pnpm typecheck
 corepack pnpm vitest run --config config/vitest.config.ts src/renderer/src src/shared
 build-orca.bat
-git push origin <새 릴리스 커밋>:refs/heads/base/<새 버전>   # PR base 포인터
-gh pr edit 1 --repo rapina/orca --base base/<새 버전>
+git push origin <새 릴리스 커밋>:refs/heads/base/<새 버전>   # 새 비교 기준점
+git push origin custom
 ```
 
 ### 충돌이 어디서 나는지는 이미 안다
