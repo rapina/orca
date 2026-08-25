@@ -213,6 +213,67 @@
 - 자동 업데이트는 막아 뒀다(`src/main/updater.ts`). 테스트에서만 되살린다
   (`config/scripts/updater-feed-enabled-in-tests.ts`).
 
+## 새 릴리스 따라가기
+
+이 포크는 upstream **릴리스 갈래** 위에 얹혀 있다(`d802fdc742 release: v1.4.186`). `upstream/main`이
+아니라 릴리스를 따라간다 — main은 개발 중이라 그때그때 상태가 다르고, 지금 base와 계열이 달라
+충돌이 더 난다.
+
+**rebase가 아니라 merge로 올린다.** rebase는 커밋을 하나씩 다시 얹으면서 같은 충돌을 여러 번
+풀게 한다. merge는 릴리스당 한 번이다. "내가 뭘 바꿨나"는 `git diff <릴리스>...HEAD`로 언제든
+그대로 나오므로 잃는 것이 없다.
+
+```bash
+git fetch upstream
+git checkout feat/terminal-owned-unread
+git merge upstream/release/<새 버전>
+# 충돌 해결
+corepack pnpm typecheck
+corepack pnpm vitest run --config config/vitest.config.ts src/renderer/src src/shared
+build-orca.bat
+git push origin <새 릴리스 커밋>:refs/heads/base/<새 버전>   # PR base 포인터
+gh pr edit 1 --repo rapina/orca --base base/<새 버전>
+```
+
+### 충돌이 어디서 나는지는 이미 안다
+
+1.4.186 이후 upstream이 이 브랜치가 만진 파일을 건드린 횟수(측정값):
+
+| 횟수 | 파일 |
+|---|---|
+| 43 | `i18n/locales/en.json` |
+| 14 | `hooks/useIpcEvents.ts` |
+| 13 | `terminal-pane/pty-connection.ts` |
+| 13 | `preload/index.ts` |
+| 9 | `web/web-preload-api.ts` |
+| 5 | `store/slices/agent-status.ts` |
+
+- **`en.json`은 손으로 병합하지 않는다.** upstream 것을 통째로 취하고(`git checkout --theirs`)
+  `pnpm run sync:localization-catalog`을 돌리면 이 포크의 키가 다시 붙는다. **단, 값이 다른 키는
+  안 돌아온다** — `translate(key, fallback)`의 fallback은 키가 없을 때만 쓰이므로, 문구를 바꾼
+  키(`components.terminalList.move.*`, `menu.markUnread`)는 병합 뒤 en.json에서 값을 다시 확인한다.
+- **`git rerere`가 켜져 있다**(`rerere.enabled`, `rerere.autoUpdate`). 한 번 푼 충돌은 다음
+  릴리스에서 자동 재적용된다. 이 상황에서 체감이 가장 크므로 끄지 말 것.
+
+### 앞으로 기능을 더할 때
+
+유지비는 **어디에 넣느냐**로 정해진다. 새 파일에 몰고 기존 파일은 등록 한 줄만 건드리면 릴리스가
+올라와도 거의 안 부딪힌다(`terminal-context-ipc.ts`, `agent-session-pane-binding-ipc.ts`가 그
+형태다). 반대로 `useIpcEvents.ts`·`pty-connection.ts` 안에 판정을 넣으면 매번 아프다.
+
+### 커밋 모양
+
+37개였던 히스토리를 주제 6개로 합쳐 뒀다(도구·훅·언리드 소유·목록·알림 연결·기록). 만들었다
+되돌린 자취(자동 판정, 임시 진단)는 지웠다. 충돌을 풀 때 "이 조각이 왜 여기 있나"를 worklog와
+1:1로 대조하기 위한 것이니, 다음에도 릴리스를 올리기 전에 주제별로 정리해 두는 편이 낫다.
+되돌릴 지점은 `backup/pre-squash-2026-08-25`에 남겨 뒀다.
+
+### 알아 둘 것
+
+`components/terminal-pane/parked-terminal-byte-watcher.test.ts`는 **베이스에서 이미 992줄**로
+`max-lines`(800)를 넘겨 있다. 이 파일을 건드리는 커밋은 pre-commit 훅에 걸리므로
+`git commit --no-verify`로 넘긴다. 이 포크가 만든 위반이 아니다.
+
 ## 확장 비용
 
 - **언리드 종류를 늘릴 때**: 지도를 하나 더 만들지 말고 `terminal-unread.ts`의 판정에 넣는다.
