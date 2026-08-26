@@ -30,6 +30,11 @@ const QUESTION_ANSWER_ENTER_INPUTS: ReadonlySet<string> = new Set([
 ])
 const QUESTION_ANSWER_DIGIT_INPUTS: ReadonlySet<string> = new Set('123456789')
 
+/** A lone Enter as the terminal delivers it — never a paste, which arrives as a longer chunk. */
+export function isEnterSubmitInput(data: string): boolean {
+  return QUESTION_ANSWER_ENTER_INPUTS.has(data)
+}
+
 export function isPotentialQuestionAnsweredSubmitInput(data: string): boolean {
   return QUESTION_ANSWER_ENTER_INPUTS.has(data) || QUESTION_ANSWER_DIGIT_INPUTS.has(data)
 }

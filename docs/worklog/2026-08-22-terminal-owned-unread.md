@@ -417,3 +417,21 @@ git push origin custom
   직렬로 돌므로 승인이든 거절이든 답이 났다는 뜻; 배치 형제는 같은 순간에 뜨니 요청 후 3초 안의 시작은
   세지 않는다 — 또는 요청한 **자식이 SubagentStop** 하면. 다른 에이전트가 움직이는 건 증거가 아니다
   (백그라운드 자식은 리드가 일해도 계속 기다린다). `server-permission-wait-release.test.ts`.
+- **새 세션이 `1.-  C Users PJH` 행으로 뜨는 이유.** 실측(Claude 2.1.246): 터미널에서 띄운 `claude`는
+  fleet 화면에서 잡을 만들거나 스페어(`spare`, 미리 띄워 둔 빈 세션)를 받아 **데몬이 호스팅하는 잡의
+  클라이언트**가 된다(`--bg-pty-host` 파이프). 잡 프로세스의 환경은 데몬 것이라 페인 키는 데몬을 띄운
+  페인이고 `CLAUDE_JOB_DIR`이 있어 잡으로 판정된다 → 자기 행. 잡↔클라이언트를 잇는 것은 디스크에 없다:
+  `~/.claude/daemon/attach-journal`은 fleet 화면을 연 클라이언트 PID·시각만 남기고, `roster.json`·잡의
+  `state.json`·양쪽 프로세스 환경 어디에도 상대를 가리키는 값이 없다. 있는 것은 **키 입력**이다 — 페인에
+  Enter가 들어간 직후 그 잡의 `UserPromptSubmit`이 온다. 답변 추론이 이미 믿는 증거와 같은 종류다.
+  렌더러가 페인별 마지막 Enter 시각을 들고(`pane-submit-keystrokes.ts`), 서버가 `UserPromptSubmit`에
+  `promptSubmitted`를 표시하면, 잡이 프롬프트를 보고할 때 창 안에 Enter가 있던 페인이 **정확히 하나**면
+  거기에 결속한다(`paneThatSubmittedThisPrompt`; 첫 배치는 12초 — Enter→스폰→부팅→훅, 재배치는 3초).
+  둘이면 자기 행에 둔다. 창 안에서 다른 세션이 상태를 갱신한 페인은 그 세션이 키를 가져간 것이라 뺀다.
+  결속된 홈이 같이 Enter를 냈으면 그대로 둔다. 앱/브리지에서 띄운 잡은 Enter가 없으니 자기 행 그대로.
+  제목 "C Users PJH"는 프롬프트 앞에 붙은 이미지 경로(`…\jobs\<id>\pasted-1.png`, Orca 붙여넣기의
+  `orca-paste-….png`)였다 — 리스너에서 걷어낸다(`prompt-pasted-image-paths.ts`). 스페어 잡의
+  `SessionStart→done`은 프롬프트가 없어 목록에 뜨지 않는다.
+- 스냅샷 요청을 결속 하이드레이션 뒤로 미룬 것이 동기 적용을 가정하는 hooks 테스트 10건을 깼다. 결속
+  API가 프로미스를 줄 때만 기다리고, 값이나 부재면 그 자리에서 손에 든 것으로 쳐 동기 경로를 되살렸다
+  (요청은 미루지 않고 **적용만** 결속 뒤로).

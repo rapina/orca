@@ -257,6 +257,8 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   processHost?: AgentProcessHost
   /** Directory the hook reported; places a background job in the workspace it really runs in. */
   cwd?: string
+  /** This event is the session reporting a prompt it was just given — the moment a keystroke into a terminal can claim a background job. */
+  promptSubmitted?: boolean
 }
 
 /** Wire shape for ordinary pane teardown or a stamped SSH disconnect batch. */

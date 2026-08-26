@@ -446,6 +446,7 @@ function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentSta
     ...(entry.restoredUnconfirmed ? { restoredUnconfirmed: true } : {}),
     ...(entry.processHost ? { processHost: entry.processHost } : {}),
     ...(entry.cwd ? { cwd: entry.cwd } : {}),
+    ...(entry.hookEventName === 'UserPromptSubmit' ? { promptSubmitted: true } : {}),
     ...entry.payload
   }
 }

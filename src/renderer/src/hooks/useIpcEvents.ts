@@ -3541,20 +3541,33 @@ export function useIpcEvents(): void {
     // to be in hand before pane-keyed rows are routed, and this runs long before the
     // workspace session is ready enough to ask for them. Putting it in the snapshot
     // path would delay the snapshot by a turn of the event loop for every start.
-    // Why Promise.resolve wraps it: the api surface is stubbed in places that hand
-    // back a plain value, and a hydration that throws here takes the whole effect
-    // — every IPC subscription below it — down with it.
-    const sessionPaneBindingsHydrated = Promise.resolve(
-      window.api?.agentStatus?.listSessionPaneBindings?.() ?? {}
-    )
-      .then((bindings) => {
-        if (bindings && typeof bindings === 'object') {
-          hydrateAgentSessionPaneBindings(bindings as Record<string, string>)
-        }
-      })
-      .catch(() => {
-        // Why swallowed: a lost binding costs one correction, nothing else.
-      })
+    // Why a plain value settles at once: the api surface is stubbed in places that
+    // hand one back, and the snapshot below then keeps the synchronous path its
+    // callers rely on - only a real promise is worth a wait. A hydration that throws
+    // must not take the whole effect - every IPC subscription below it - down.
+    let sessionPaneBindingsInHand = false
+    const takeSessionPaneBindings = (bindings: unknown): void => {
+      if (bindings && typeof bindings === 'object') {
+        hydrateAgentSessionPaneBindings(bindings as Record<string, string>)
+      }
+      sessionPaneBindingsInHand = true
+    }
+    let sessionPaneBindingsHydrated: Promise<void> = Promise.resolve()
+    try {
+      const listed: unknown = window.api?.agentStatus?.listSessionPaneBindings?.()
+      if (listed && typeof (listed as Promise<unknown>).then === 'function') {
+        sessionPaneBindingsHydrated = (listed as Promise<unknown>)
+          .then(takeSessionPaneBindings)
+          .catch(() => {
+            // Why swallowed: a lost binding costs one correction, nothing else.
+            sessionPaneBindingsInHand = true
+          })
+      } else {
+        takeSessionPaneBindings(listed ?? {})
+      }
+    } catch {
+      sessionPaneBindingsInHand = true
+    }
     let snapshotRequestedForReadyWindow = false
     let snapshotRequestId = 0
     const requestAgentStatusSnapshotIfReady = (): void => {
@@ -3572,11 +3585,11 @@ export function useIpcEvents(): void {
       }
       snapshotRequestedForReadyWindow = true
       const requestId = ++snapshotRequestId
-      // Why after the bindings: a replayed row routed before its binding is in hand
-      // lands on the pane its hook names and stays there - the binding only steers
-      // what arrives later.
-      void sessionPaneBindingsHydrated
-        .then(() => getSnapshot())
+      // Why applied after the bindings: a replayed row routed before its binding is
+      // in hand lands on the pane its hook names and stays there - the binding only
+      // steers what arrives later. The pull itself is not delayed.
+      const snapshot = getSnapshot()
+      void (sessionPaneBindingsInHand ? snapshot : sessionPaneBindingsHydrated.then(() => snapshot))
         .then((entries) => {
           if (agentStatusEffectDisposed || requestId !== snapshotRequestId) {
             return

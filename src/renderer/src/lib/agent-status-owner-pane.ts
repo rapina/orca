@@ -8,6 +8,7 @@ import {
   getAgentSessionPaneBinding,
   resolveAgentPaneAuthorityKey
 } from '@/store/slices/agent-pane-authority'
+import { panesThatSubmittedBetween } from './pane-submit-keystrokes'
 import { isPathInsideWorktree } from './terminal-links'
 
 /**
@@ -31,6 +32,7 @@ import { isPathInsideWorktree } from './terminal-links'
 export type AgentStatusOwnerState = {
   tabsByWorktree: Record<string, TerminalTab[]>
   worktreesByRepo: Record<string, Worktree[]>
+  agentStatusByPaneKey?: Readonly<Record<string, AgentStatusEntry>>
 }
 
 export type AgentStatusOwner = {
@@ -123,6 +125,50 @@ function backgroundJobPaneKey(
   return paneKey
 }
 
+/** Enter → daemon spawn → boot → hook: a job started from a terminal takes seconds to report its first prompt. */
+const FIRST_PROMPT_SUBMIT_WINDOW_MS = 12_000
+/** An attached job reports a prompt within a second of the keystroke; a slower match is coincidence. */
+const PROMPT_SUBMIT_WINDOW_MS = 3_000
+/** Keystroke clocks run in the renderer, receipt in main; a little slack covers the order. */
+const PROMPT_SUBMIT_CLOCK_SLACK_MS = 1_000
+
+/**
+ * The terminal whose Enter sent the prompt this job just reported, if exactly one
+ * terminal can have.
+ *
+ * Why a keystroke: a job hosted by a daemon reports the daemon's pane, and nothing
+ * on disk names the terminal whose attached client the person types into. The
+ * prompt typed there is the prompt the job reports a moment later. Why exactly
+ * one: two terminals with an Enter in the window is a coin toss, and the row of
+ * the job's own is the safer place to leave it. Why the remembered home stays when
+ * it also submitted: that is the ordinary case, not news. Why a terminal whose own
+ * status moved for another session is skipped: that session took the keystroke.
+ */
+function paneThatSubmittedThisPrompt(
+  state: AgentStatusOwnerState,
+  data: AgentStatusIpcPayload,
+  sessionId: string,
+  home: string | null
+): string | null {
+  const window = home ? PROMPT_SUBMIT_WINDOW_MS : FIRST_PROMPT_SUBMIT_WINDOW_MS
+  const from = data.receivedAt - window
+  const candidates = panesThatSubmittedBetween(
+    from,
+    data.receivedAt + PROMPT_SUBMIT_CLOCK_SLACK_MS
+  ).filter((paneKey) => {
+    const tabId = parsePaneKey(paneKey)?.tabId
+    if (!tabId || !isOpenTabId(state, tabId)) {
+      return false
+    }
+    const own = state.agentStatusByPaneKey?.[paneKey]
+    return !(own && own.providerSession?.id !== sessionId && own.updatedAt >= from)
+  })
+  if (home && candidates.includes(home)) {
+    return home
+  }
+  return candidates.length === 1 ? (candidates[0] ?? null) : null
+}
+
 /** Whether this key is a job's own row rather than a terminal. */
 export function isBackgroundJobPaneKey(
   agentStatusByPaneKey: Readonly<Record<string, AgentStatusEntry>> | undefined,
@@ -155,7 +201,18 @@ export function resolveAgentStatusOwner(
     bindAgentSessionPane(sessionId, data.paneKey)
     return { paneKey, sessionRouted: false, homeLearned: { sessionId, previousPaneKey } }
   }
-  const home = getAgentSessionPaneBinding(sessionId)
+  const home = getAgentSessionPaneBinding(sessionId) ?? null
+  const typedInto = data.promptSubmitted
+    ? paneThatSubmittedThisPrompt(state, data, sessionId, home)
+    : null
+  if (typedInto && typedInto !== home) {
+    bindAgentSessionPane(sessionId, typedInto)
+    return {
+      paneKey: resolveAgentPaneAuthorityKey(typedInto),
+      sessionRouted: true,
+      homeLearned: { sessionId, previousPaneKey: home }
+    }
+  }
   if (home) {
     return { paneKey: resolveAgentPaneAuthorityKey(home), sessionRouted: true }
   }

@@ -15,6 +15,10 @@ import {
   worktreeIdForPath,
   type AgentStatusOwnerState
 } from './agent-status-owner-pane'
+import {
+  noteTerminalSubmitKeystroke,
+  resetPaneSubmitKeystrokesForTests
+} from './pane-submit-keystrokes'
 
 const HOST_LEAF = '11111111-1111-4111-8111-111111111111'
 const OTHER_LEAF = '22222222-2222-4222-8222-222222222222'
@@ -152,6 +156,99 @@ describe('resolveAgentStatusOwner', () => {
     )
 
     expect(owner.paneKey).toBe(makePaneKey('tab-cozy', JOB_SESSION))
+  })
+})
+
+// Why: on Claude 2.1.246 a `claude` typed into a terminal is a client of a
+// daemon-hosted job, and the job's hooks name the daemon's pane. Nothing on disk
+// links the job to the terminal; the Enter that sent its prompt does.
+describe('a prompt typed into a terminal claims the job that reports it', () => {
+  const RECEIVED_AT = 100_000
+  const OWN_ROW = makePaneKey('tab-cozy', JOB_SESSION)
+
+  function submitted(overrides: Partial<AgentStatusIpcPayload> = {}): AgentStatusIpcPayload {
+    return status({
+      processHost: 'background-job',
+      promptSubmitted: true,
+      receivedAt: RECEIVED_AT,
+      ...overrides
+    })
+  }
+
+  beforeEach(() => {
+    resetAgentPaneAuthorityAliasesForTests()
+    resetAgentStatusOwnerPaneForTests()
+    resetPaneSubmitKeystrokesForTests()
+  })
+
+  it("follows the terminal whose Enter sent the job's first prompt, seconds earlier", () => {
+    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 8_000)
+
+    const owner = resolveAgentStatusOwner(state, submitted())
+
+    expect(owner).toEqual({
+      paneKey: OTHER_PANE,
+      sessionRouted: true,
+      homeLearned: { sessionId: JOB_SESSION, previousPaneKey: null }
+    })
+    expect(getAgentSessionPaneBinding(JOB_SESSION)).toBe(OTHER_PANE)
+  })
+
+  it('leaves the job on its own row when two terminals submitted', () => {
+    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 2_000)
+    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 1_000)
+
+    expect(resolveAgentStatusOwner(state, submitted()).paneKey).toBe(OWN_ROW)
+    expect(getAgentSessionPaneBinding(JOB_SESSION)).toBeUndefined()
+  })
+
+  it('skips a terminal whose own session took the keystroke', () => {
+    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 500)
+    const busy: AgentStatusOwnerState = {
+      ...state,
+      agentStatusByPaneKey: {
+        [OTHER_PANE]: { providerSession: { id: 'another-session' }, updatedAt: RECEIVED_AT - 200 }
+      } as never
+    }
+
+    expect(resolveAgentStatusOwner(busy, submitted()).paneKey).toBe(OWN_ROW)
+  })
+
+  it('only listens on prompt reports', () => {
+    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 500)
+
+    expect(resolveAgentStatusOwner(state, submitted({ promptSubmitted: undefined })).paneKey).toBe(
+      OWN_ROW
+    )
+  })
+
+  it('moves a bound job to the terminal its next prompt was typed into', () => {
+    bindAgentSessionPane(JOB_SESSION, OTHER_PANE)
+    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 1_000)
+
+    const owner = resolveAgentStatusOwner(state, submitted())
+
+    expect(owner.paneKey).toBe(ORCA_PANE)
+    expect(owner.homeLearned).toEqual({ sessionId: JOB_SESSION, previousPaneKey: OTHER_PANE })
+    expect(getAgentSessionPaneBinding(JOB_SESSION)).toBe(ORCA_PANE)
+  })
+
+  it('keeps a bound job home past the short window, and when home itself submitted', () => {
+    bindAgentSessionPane(JOB_SESSION, OTHER_PANE)
+    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 5_000)
+
+    expect(resolveAgentStatusOwner(state, submitted())).toEqual({
+      paneKey: OTHER_PANE,
+      sessionRouted: true
+    })
+
+    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 600)
+    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 400)
+
+    expect(resolveAgentStatusOwner(state, submitted())).toEqual({
+      paneKey: OTHER_PANE,
+      sessionRouted: true
+    })
   })
 })
 

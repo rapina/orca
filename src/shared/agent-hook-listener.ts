@@ -27,6 +27,7 @@ import {
 } from './agent-status-types'
 import { normalizeOptionalField } from './agent-status-field-normalization'
 import { isAskUserQuestionTool } from './agent-question-answered-intent'
+import { stripPastedImagePaths } from './prompt-pasted-image-paths'
 import {
   claudeRosterHasRestoredSnapshotSubagent,
   claudeRosterHasRuntimeWorkingSubagent,
@@ -4337,7 +4338,7 @@ export function normalizeHookPayload(
     state.lastPromptByPaneKey.set(paneKey, previousStatus.payload.prompt)
   }
   const extractedPrompt = extractPromptText(hookPayload as Record<string, unknown>)
-  const promptText = extractedPrompt.text
+  const promptText = stripPastedImagePaths(extractedPrompt.text)
   let resolvedPromptText = promptText
   let hasTranscriptPromptEvidence = false
   // Why: exhaustive switch so a new AgentHookSource fails typecheck here instead of silently misrouting.
