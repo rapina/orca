@@ -363,15 +363,21 @@ git push origin custom
   `isBackgroundJobPaneKey`로 우회한다. 이 우회가 없으면 끝난 잡이 언리드를 못 남긴다.
 - 세션 라우팅된 상태에는 `terminalHandle`·`launchToken`을 싣지 않는다 — 둘 다 데몬을 띄운
   터미널 것이라 잠든 에이전트 복원이나 보존 행 매칭을 엉뚱한 터미널에 건다.
-- **새 빌드를 켜도 훅 스크립트가 안 바뀌었다.** `~/.orca/agent-hooks/claude-hook.cmd`는 시작 시
-  `refreshManagedScriptIfPresent`가 임시 파일을 만들어 **rename으로 교체**하는데, cmd.exe는 실행 중인
-  배치 파일을 삭제 공유 없이 열어 두므로 어떤 훅이 그 순간 돌고 있으면 EPERM으로 진다. 세션 20개가
-  훅을 쏘는 기계에서 시작 시점이 정확히 그 순간이었고, 실패는 콘솔에만 남았다(파일 로그 없음).
-  실측: 새 빌드의 `app.asar`에는 새 스크립트가 있는데 디스크 파일은 8/21 그대로, 훅에 `processHost`
-  없음. 고친 것: rename을 50ms 간격 10회 재시도하고 그래도 지면 **제자리 쓰기**(cmd.exe는 쓰기 공유는
-  허용한다); 동기 경로(`writeManagedScript`)는 바로 제자리 쓰기. 그리고 **`processHost` 없는 클로드
-  훅이 들어오면 5분에 한 번 스크립트를 다시 쓴다**(`stale-hook-script-refresh.ts`) — 시작 시 교체가
-  어떤 이유로든 지면 다음 훅이 고친다.
+- **"새 빌드인데 훅 스크립트가 안 바뀐다"는 빌드가 새것이 아니었다.** `build-orca.bat`은 **그
+  체크아웃**을 빌드한다. 메인 체크아웃(`custom`)에서 돌리면 브랜치의 커밋은 안 들어가고, 옛 생성기가
+  옛 스크립트를 만들어 "내용이 같다"며 건너뛴다(`writeManagedScript`의 조기 반환). 헷갈린 이유:
+  `app.asar` 안에서 새 코드 문자열이 잡혔는데, 그것은 **저장소 안의 `.claude/worktrees/…` 워크트리
+  소스(테스트 파일까지)가 통째로 패키징된 것**이었다 — `out/main`·`out/renderer`에는 없었다. 판별은
+  `out/main/index.js`를 grep 하거나 `git log -1`을 보는 것이지 asar를 grep 하는 것이 아니다.
+  브랜치 빌드는 `git merge origin/<브랜치>` 뒤에 메인에서 빌드하거나, 워크트리 폴더에서
+  `build-orca.bat`을 돌려 그 폴더의 `dist`를 띄운다. 패키저가 `.claude/**`를 쓸어 담지 않게 제외했다.
+- 스크립트 교체 자체도 단단하게 했다(관측된 원인은 아니지만 실재하는 구멍이다):
+  `refreshManagedScriptIfPresent`는 임시 파일을 **rename으로 교체**하는데, cmd.exe는 실행 중인 배치
+  파일을 삭제 공유 없이 열어 두므로 어떤 훅이 그 순간 돌고 있으면 EPERM으로 진다. rename을 50ms 간격
+  10회 재시도하고 그래도 지면 **제자리 쓰기**(cmd.exe는 쓰기 공유는 허용한다); 동기
+  경로(`writeManagedScript`)는 바로 제자리 쓰기. 그리고 **`processHost` 없는 클로드 훅이 들어오면
+  5분에 한 번 스크립트를 다시 쓴다**(`stale-hook-script-refresh.ts`) — 시작 시 교체가 어떤 이유로든
+  지면 다음 훅이 고친다.
 - 결속(`session-pane-bindings.json`)은 **스냅샷 재생 전에** 읽는다. 재생된 행은 나중 결속으로 안
   옮겨진다.
 - 우클릭 메뉴에 **「알림에 자기 행 주기」**(결속 해제)를 넣었다. 잡을 터미널에 결속하면 그 터미널

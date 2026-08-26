@@ -152,3 +152,6 @@ tests/tools/benchmarks/results/terminal-pipeline-*.json
 
 # Old release trees the cross-version wire harness extracts on demand
 tests/e2e/.cross-version-checkouts/
+
+# Git worktrees Claude Code creates inside the checkout
+/.claude/worktrees/

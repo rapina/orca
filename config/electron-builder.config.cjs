@@ -102,6 +102,10 @@ module.exports = {
   },
   files: [
     '!**/.vscode/*',
+    // Why: Claude Code keeps git worktrees under .claude/worktrees inside the repo, each
+    // with a full source tree the root excludes below do not reach. Packaging one swept
+    // that tree into app.asar (375 MB) and made a build look newer than its out/ was.
+    '!.claude{,/**/*}',
     // Why: these repo-only inputs are either bundled into out/ or copied via
     // extraResources. Shipping them in app.asar bloats the desktop bundle.
     '!src{,/**/*}',
