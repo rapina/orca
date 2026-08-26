@@ -374,8 +374,13 @@ git push origin custom
 - **워크트리에서 그냥 빌드하면 node-gyp가 죽는다.** `.claude\worktrees\<이름>\` 만큼 경로가 길어져
   node-pty의 gyp 산출물 경로(`…\node-pty\build\..\..\..\node-addon-api@7.1.1\…\*.vcxproj.filters`)가
   **264자로 MAX_PATH(260)를 넘고**, 이 기계는 `LongPathsEnabled=0`이라 Python이 ENOENT를 낸다(메인
-  체크아웃에서는 같은 경로가 220자). 레지스트리를 안 건드리는 우회: `subst W: <워크트리 경로>` 뒤
-  `W:\build-orca.bat`(배치가 `cd /d %~dp0`라 `W:\`에서 돈다). 끝나면 `subst W: /D`.
+  체크아웃에서는 같은 경로가 220자). `subst`로 짧은 드라이브를 매핑해도 **안 된다** — `@electron/rebuild`가
+  모듈 경로를 실제 경로로 되돌리고, `verify-skills-cli-runtime`은 정션 실제 경로를 "루트 밖"으로 본다.
+  통한 절차: 메인 체크아웃의 Electron용 네이티브 산출물(`node_modules/.pnpm/node-pty@…/node_modules/
+  node-pty/build`, `windows-native-registry@…/…/build` — 같은 lockfile·같은 Electron이면 그대로 쓸 수
+  있다)을 워크트리의 같은 자리에 복사한 뒤 `set ORCA_REUSE_PREPARED_NATIVE_RUNTIME=1`로
+  `build-orca.bat`을 돌린다. 이 변수가 있으면 패키징의 `beforeBuild`가 `--force` 없이 프로브만 해서
+  "already load in Electron; skipping rebuild"로 지나간다. 나온 `dist`는 워크트리 폴더의 것이다.
 - 스크립트 교체 자체도 단단하게 했다(관측된 원인은 아니지만 실재하는 구멍이다):
   `refreshManagedScriptIfPresent`는 임시 파일을 **rename으로 교체**하는데, cmd.exe는 실행 중인 배치
   파일을 삭제 공유 없이 열어 두므로 어떤 훅이 그 순간 돌고 있으면 EPERM으로 진다. rename을 50ms 간격
