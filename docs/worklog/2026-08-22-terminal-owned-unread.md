@@ -371,6 +371,11 @@ git push origin custom
   `out/main/index.js`를 grep 하거나 `git log -1`을 보는 것이지 asar를 grep 하는 것이 아니다.
   브랜치 빌드는 `git merge origin/<브랜치>` 뒤에 메인에서 빌드하거나, 워크트리 폴더에서
   `build-orca.bat`을 돌려 그 폴더의 `dist`를 띄운다. 패키저가 `.claude/**`를 쓸어 담지 않게 제외했다.
+- **워크트리에서 그냥 빌드하면 node-gyp가 죽는다.** `.claude\worktrees\<이름>\` 만큼 경로가 길어져
+  node-pty의 gyp 산출물 경로(`…\node-pty\build\..\..\..\node-addon-api@7.1.1\…\*.vcxproj.filters`)가
+  **264자로 MAX_PATH(260)를 넘고**, 이 기계는 `LongPathsEnabled=0`이라 Python이 ENOENT를 낸다(메인
+  체크아웃에서는 같은 경로가 220자). 레지스트리를 안 건드리는 우회: `subst W: <워크트리 경로>` 뒤
+  `W:\build-orca.bat`(배치가 `cd /d %~dp0`라 `W:\`에서 돈다). 끝나면 `subst W: /D`.
 - 스크립트 교체 자체도 단단하게 했다(관측된 원인은 아니지만 실재하는 구멍이다):
   `refreshManagedScriptIfPresent`는 임시 파일을 **rename으로 교체**하는데, cmd.exe는 실행 중인 배치
   파일을 삭제 공유 없이 열어 두므로 어떤 훅이 그 순간 돌고 있으면 EPERM으로 진다. rename을 50ms 간격
