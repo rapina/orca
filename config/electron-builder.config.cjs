@@ -106,6 +106,11 @@ module.exports = {
     // with a full source tree the root excludes below do not reach. Packaging one swept
     // that tree into app.asar (375 MB) and made a build look newer than its out/ was.
     '!.claude{,/**/*}',
+    // Why: only the configured output directory is excluded by default, so packaging
+    // into a second one (--config.directories.output=dist-next, used while the first
+    // build is running) swept the first build's dist/ into app.asar (637 MB).
+    '!dist{,/**/*}',
+    '!dist-*{,/**/*}',
     // Why: these repo-only inputs are either bundled into out/ or copied via
     // extraResources. Shipping them in app.asar bloats the desktop bundle.
     '!src{,/**/*}',
