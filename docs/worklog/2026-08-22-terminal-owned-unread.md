@@ -406,3 +406,14 @@ git push origin custom
   메뉴가 두 목적지를 이름으로 준다. **행의 우클릭은 캡처 단계**라 칩의 메뉴보다 먼저 뛴다 — 칩에
   `data-terminal-list-link`를 달고 행이 그걸 보면 물러난다(`terminal-list-link-marker.ts`). 이 마커를
   칩 모듈에서 내보내면 행 테스트가 칩의 의존성(다이얼로그·런타임 스트림)을 통째로 끌어온다.
+- **답한 권한 요청이 잡에서 "?"로 남았다**(실측: 2.4에 결속된 잡, 13:53 `EnterWorktree`의
+  permission-root relocation 프롬프트 → 13:54 승인 → 턴이 끝난 14:16까지 물음표). 서버는
+  `PermissionRequest` 뒤의 `waiting`을 **고정**한다(`shouldKeepClaudePermissionVisible`) — 같은 배치의
+  형제 도구가 완료되며 보내는 working이 프롬프트를 지우지 않게. 푸는 길은 승인된 도구의 짝
+  이벤트(같은 tool_use_id)·새 프롬프트·터미널의 답변 키 입력 추론뿐이었다. 잡은 답을 밖에서 하니 키
+  입력이 없고, 짝 이벤트가 안 오면(거절은 PostToolUse를 내지 않는다) 턴 끝까지 고정된다. 이제
+  **요청한 에이전트가 프롬프트를 지나갔다는 증거**로도 푼다(`isClaudePermissionWaiterMovingOn`): 그
+  에이전트(리드, 또는 같은 `agent_id`의 자식)가 **다른 도구를 새로 시작**(PreToolUse)하면 — 권한 도구는
+  직렬로 돌므로 승인이든 거절이든 답이 났다는 뜻; 배치 형제는 같은 순간에 뜨니 요청 후 3초 안의 시작은
+  세지 않는다 — 또는 요청한 **자식이 SubagentStop** 하면. 다른 에이전트가 움직이는 건 증거가 아니다
+  (백그라운드 자식은 리드가 일해도 계속 기다린다). `server-permission-wait-release.test.ts`.

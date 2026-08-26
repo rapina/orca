@@ -523,11 +523,43 @@ function shouldKeepClaudePermissionVisible(
   if (isClaudePermissionResumingApprovedTool(previous, next)) {
     return false
   }
+  if (isClaudePermissionWaiterMovingOn(previous, next)) {
+    return false
+  }
   // Why: only real permission requests stay sticky; newer Claude reports AskUserQuestion as a PermissionRequest, so tool name (not event) decides.
   if (isAskUserQuestionTool(previous.payload.toolName)) {
     return false
   }
   return true
+}
+
+// Why: batch siblings of a permission-gated tool launch within the same instant; answering the prompt takes a person longer.
+const CLAUDE_PERMISSION_SIBLING_LAUNCH_WINDOW_MS = 3_000
+
+/**
+ * The agent that asked for permission demonstrably moved past the prompt: it started a
+ * different tool later than any batch sibling could, or (a subagent) stopped. Both approval
+ * and denial end here — denial never yields a PostToolUse, and a background job's answer
+ * never reaches Orca as a keystroke, so the approved-tool match alone left the pane waiting
+ * until the turn ended. Another agent moving on proves nothing: a background child keeps
+ * waiting while its lead works.
+ */
+function isClaudePermissionWaiterMovingOn(
+  previous: EnrichedAgentHookEventPayload,
+  next: AgentHookEventPayload
+): boolean {
+  const previousAgentId = previous.toolAgentId?.trim() || undefined
+  const nextAgentId = next.toolAgentId?.trim() || undefined
+  if (previousAgentId !== nextAgentId) {
+    return false
+  }
+  if (next.hookEventName === 'SubagentStop') {
+    return previousAgentId !== undefined
+  }
+  if (next.hookEventName !== 'PreToolUse' || !next.toolUseId?.trim()) {
+    return false
+  }
+  return Date.now() - previous.receivedAt >= CLAUDE_PERMISSION_SIBLING_LAUNCH_WINDOW_MS
 }
 
 function isClaudePermissionResumingApprovedTool(
