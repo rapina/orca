@@ -12,6 +12,7 @@ import {
   type MigrationUnsupportedPtyEntry,
   type ParsedAgentStatusPayload
 } from '../../../../shared/agent-status-types'
+import { isBackgroundJobRowKey } from '../../../../shared/background-job-row-key'
 import {
   agentProviderSessionsEqual,
   getAgentResumeArgv,
@@ -608,6 +609,11 @@ function sleepingRecordFromEntry(args: {
 }): SleepingAgentSessionRecord | null {
   const agent = args.entry.agentType
   if (!isResumableTuiAgent(agent) || !args.entry.providerSession) {
+    return null
+  }
+  // Why: a background job's own row has no terminal behind it. A record made from
+  // it became a fresh tab running `claude --resume <job>` at the next start.
+  if (isBackgroundJobRowKey(args.entry.paneKey, args.entry.providerSession.id)) {
     return null
   }
   if (!getAgentResumeArgv(agent, args.entry.providerSession)) {

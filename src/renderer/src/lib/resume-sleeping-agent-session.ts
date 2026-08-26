@@ -4,6 +4,7 @@ import {
   type SleepingAgentSessionRecord
 } from '../../../shared/agent-session-resume'
 import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
+import { isBackgroundJobRowKey } from '../../../shared/background-job-row-key'
 import {
   getProviderSessionClaimKey,
   isPassiveCompletedHibernationEvidence,
@@ -173,6 +174,12 @@ export function resumeSleepingAgentSessionsForWorktree(
       continue
     }
     if (record.automaticResumeBlockedBy === 'legacy-orchestration-worker') {
+      continue
+    }
+    // Why: a job's own row has no terminal behind it; resuming it would open a
+    // tab for a session that lives in a daemon (or, for a spare, never existed).
+    if (isBackgroundJobRowKey(record.paneKey, record.providerSession?.id)) {
+      state.clearSleepingAgentSession(record.paneKey)
       continue
     }
     if (isInvalidWorktreeActivationRecord(record)) {

@@ -435,3 +435,12 @@ git push origin custom
 - 스냅샷 요청을 결속 하이드레이션 뒤로 미룬 것이 동기 적용을 가정하는 hooks 테스트 10건을 깼다. 결속
   API가 프로미스를 줄 때만 기다리고, 값이나 부재면 그 자리에서 손에 든 것으로 쳐 동기 경로를 되살렸다
   (요청은 미루지 않고 **적용만** 결속 뒤로).
+- **재시작하자 `claude --resume <잡>`을 도는 탭이 잡마다 하나씩 열렸다**(대부분 전사 없는 스페어라
+  "No conversation found"). 종료 시 수면 세션 캡처(`captureAllSleepingAgentSessions('quit')` →
+  `sleepingRecordFromEntry`)가 `agentStatusByPaneKey`를 훑으며 **잡의 자기 행**(`<탭>:<세션 UUID>`)까지
+  되살릴 터미널로 기록했고, 복원이 그 리프를 못 찾아 탭을 새로 만든 것이다. 서버가 잡 키를 쓰기
+  시작한 뒤 캐시에 잡 행이 쌓여 이번 재시작에 한꺼번에 터졌다. 자기 행은 터미널이 아니다 — 뒤에 PTY가
+  없고 세션은 데몬에 산다. `isBackgroundJobRowKey`(리프 = 세션 id, `background-job-row-key.ts`)로
+  세 곳에서 막는다: 기록을 만들 때(모든 캡처 경로가 지나는 `sleepingRecordFromEntry`), 저장된 세션을
+  들일 때(`withoutBackgroundJobRowRecords` — 고치기 전에 저장된 기록이 다음 실행마다 탭을 만들지
+  않게), 복원할 때(`resumeSleepingAgentSessionsForWorktree`, 기록을 지운다).

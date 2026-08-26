@@ -5,6 +5,7 @@ import type { WorkspaceKey } from '../../../../shared/folder-workspace-types'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Tab } from '../../../../shared/tab-types'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/terminal-tab-types'
+import { withoutBackgroundJobRowRecords } from '@/lib/workspace-session-sleeping-agents'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { WorkspaceSessionState } from '../../../../shared/workspace-session-state-types'
 import type { SetupSplitDirection } from '../../../../shared/worktree/launch-types'
@@ -1000,9 +1001,9 @@ function targetScopedWorkspaceHydrationPatch(
     ...Object.entries(state.sleepingAgentSessionsByPaneKey).filter(
       ([, record]) => !workspaceKeys.has(record.worktreeId)
     ),
-    ...Object.entries(hydrated.sleepingAgentSessionsByPaneKey).filter(([, record]) =>
-      workspaceKeys.has(record.worktreeId)
-    )
+    ...Object.entries(
+      withoutBackgroundJobRowRecords(hydrated.sleepingAgentSessionsByPaneKey)
+    ).filter(([, record]) => workspaceKeys.has(record.worktreeId))
   ])
   const everActivatedWorktreeIds = new Set(state.everActivatedWorktreeIds)
   for (const workspaceKey of hydrated.everActivatedWorktreeIds) {
