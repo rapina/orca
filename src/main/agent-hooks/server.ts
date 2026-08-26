@@ -56,6 +56,7 @@ import {
 } from '../../shared/claude-statusline-rate-limits'
 import {
   AGENT_STATUS_STALE_AFTER_MS,
+  type AgentProcessHost,
   type AgentStatusClearIpcPayload,
   type AgentStatusIpcPayload,
   type AgentType,
@@ -75,7 +76,12 @@ import {
   isAskUserQuestionTool,
   type AgentQuestionAnsweredInferenceRequest
 } from '../../shared/agent-question-answered-intent'
-import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
+import {
+  isStablePaneId,
+  makePaneKey,
+  parseLegacyNumericPaneKey,
+  parsePaneKey
+} from '../../shared/stable-pane-id'
 import type { LegacyPaneKeyAliasEntry } from '../../shared/persisted-state-types'
 import {
   getAgentResumeArgv,
@@ -405,6 +411,24 @@ function authorityCommitmentsMatch(
     left.tabId === right.tabId &&
     left.worktreeId === right.worktreeId
   )
+}
+
+function readStableSessionId(value: unknown): string | null {
+  const id = typeof value === 'string' ? value.trim() : ''
+  return isStablePaneId(id) ? id : null
+}
+
+/** The Claude `session_id` of a hook body, whether the payload arrived as JSON text or parsed. */
+function readHookBodySessionId(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    // Why a regex: the listener parses the whole payload later; this only needs one field early.
+    const match = /"session_id"\s*:\s*"([0-9a-fA-F-]{36})"/.exec(payload)
+    return match ? readStableSessionId(match[1]) : null
+  }
+  if (payload && typeof payload === 'object') {
+    return readStableSessionId((payload as Record<string, unknown>).session_id)
+  }
+  return null
 }
 
 function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentStatusIpcPayload {
@@ -1009,8 +1033,13 @@ export class AgentHookServer {
 
   private getAgentStatusDisposition(
     paneKey: string,
-    event?: { hookEventName?: string; isReplay?: boolean }
+    event?: { hookEventName?: string; isReplay?: boolean; processHost?: AgentProcessHost }
   ): 'accept' | 'restart' | 'suppress' {
+    // Why: a background job is not in the tab its key names - closing that tab
+    // ends nothing of the job's, and the renderer gives it a row elsewhere.
+    if (event?.processHost === 'background-job') {
+      return 'accept'
+    }
     const ownerPaneKey = this.resolvePaneKeyAlias(paneKey)
     const paneRetired =
       this.closedAgentStatusPaneKeys.has(paneKey) ||
@@ -1745,6 +1774,35 @@ export class AgentHookServer {
     return changed
   }
 
+  /**
+   * Give a background job's hooks a pane key of their own: the reported tab with
+   * the session id in the leaf's place.
+   *
+   * Why here, before normalization: every per-pane state this server and the
+   * listener keep - the lead turn state, tool caches, the subagent roster, the
+   * last-status cache - is keyed by pane key, and a background-job host stamps
+   * one pane key on every job it runs. Left as is, one job's Stop was read
+   * against another job's running turn and never became `done` (measured: a
+   * finished job stayed "working" on the terminal it was bound to). The renderer
+   * builds the same key for an unbound job, so the two sides agree.
+   */
+  private normalizeBackgroundJobPaneKey(source: AgentHookSource, body: unknown): unknown {
+    if (source !== 'claude' || typeof body !== 'object' || body === null) {
+      return body
+    }
+    const record = body as Record<string, unknown>
+    if (record.processHost !== 'background-job') {
+      return body
+    }
+    const paneKey = typeof record.paneKey === 'string' ? record.paneKey.trim() : ''
+    const tabId = parsePaneKey(paneKey)?.tabId
+    const sessionId = readHookBodySessionId(record.payload)
+    if (!tabId || !sessionId) {
+      return body
+    }
+    return { ...record, paneKey: makePaneKey(tabId, sessionId) }
+  }
+
   private normalizeHookBodyPaneKeyAlias(body: unknown): unknown {
     if (typeof body !== 'object' || body === null) {
       return body
@@ -1923,7 +1981,7 @@ export class AgentHookServer {
     }
     // Why: trim paneKey to match the HTTP path, else remote-vs-local events for one pane diverge.
     const physicalPaneKey = envelope.paneKey.trim()
-    const paneKey = this.resolvePaneKeyAlias(physicalPaneKey)
+    let paneKey = this.resolvePaneKeyAlias(physicalPaneKey)
     const parsedPaneKey = parsePaneKey(paneKey)
     if (paneKey.length === 0) {
       track('agent_hook_unattributed', { reason: 'empty_pane_key' })
@@ -1934,6 +1992,14 @@ export class AgentHookServer {
     }
     if (!parsedPaneKey) {
       return
+    }
+    // Why: same per-job key as the HTTP path (see normalizeBackgroundJobPaneKey).
+    const remoteJobSessionId =
+      envelope.processHost === 'background-job'
+        ? readStableSessionId((envelope.providerSession as { id?: unknown } | undefined)?.id)
+        : null
+    if (remoteJobSessionId) {
+      paneKey = makePaneKey(parsedPaneKey.tabId, remoteJobSessionId)
     }
     if (envelope.tabId !== undefined && typeof envelope.tabId !== 'string') {
       return
@@ -1968,7 +2034,8 @@ export class AgentHookServer {
         : undefined
     const statusDisposition = this.getAgentStatusDisposition(paneKey, {
       hookEventName,
-      isReplay: envelope.isReplay === true
+      isReplay: envelope.isReplay === true,
+      processHost: remoteJobSessionId ? 'background-job' : undefined
     })
     if (statusDisposition === 'suppress') {
       return
@@ -2176,7 +2243,10 @@ export class AgentHookServer {
         }
 
         trackEmptyPaneKeyHook(body)
-        const aliasedBody = this.normalizeHookBodyPaneKeyAlias(body)
+        const aliasedBody = this.normalizeBackgroundJobPaneKey(
+          source,
+          this.normalizeHookBodyPaneKeyAlias(body)
+        )
         const normalized = this.normalizeLocalHookPayload(source, aliasedBody)
         if (source === 'claude' && normalized.event && !normalized.event.processHost) {
           // Why: a Claude hook that does not say who runs it came from a script older
@@ -2186,7 +2256,8 @@ export class AgentHookServer {
         const statusDisposition = normalized.event
           ? this.getAgentStatusDisposition(normalized.event.paneKey, {
               hookEventName: normalized.event.hookEventName,
-              isReplay: normalized.event.isReplay
+              isReplay: normalized.event.isReplay,
+              processHost: normalized.event.processHost
             })
           : 'suppress'
         if (normalized.event && statusDisposition !== 'suppress') {
