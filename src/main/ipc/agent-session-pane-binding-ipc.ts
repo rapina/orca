@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app, ipcMain } from 'electron'
 import { isValidPaneKey } from '../agent-hooks/server'
+import './agent-routing-diagnostic-ipc'
 
 /**
  * Terminals an agent session was bound to by hand, kept across restarts.

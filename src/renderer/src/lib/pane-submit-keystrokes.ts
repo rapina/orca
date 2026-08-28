@@ -1,18 +1,37 @@
 import { isEnterSubmitInput } from '../../../shared/agent-question-answered-intent'
+import {
+  stripAnsiEscapeSequences,
+  TERMINAL_CONTROL_CHARACTER_PATTERN
+} from '../../../shared/ansi-escape-sequences'
 
 /**
- * When each terminal last had Enter pressed into it, and which session's prompt
- * that Enter turned out to be.
+ * What was last typed into each terminal and when Enter sent it, and which
+ * session's prompt that Enter turned out to be.
  *
  * A session hosted by a background-job daemon reports the daemon's pane, never the
  * terminal whose attached client the person is typing into; nothing on disk links
- * the two. The keystroke does: the prompt typed into that terminal is the prompt
- * the job reports a moment later. This is the same evidence the answered-question
- * inference already trusts.
+ * the two. The keystrokes do: the prompt typed into that terminal is the prompt
+ * the job reports a moment later, word for word. This is the same evidence the
+ * answered-question inference already trusts.
  */
 
 const MAX_TRACKED_PANES = 256
-const submitAtByPaneKey = new Map<string, number>()
+const MAX_LINE_CHARS = 4_000
+// Why kept apart from the other control bytes: Backspace is a key the person pressed,
+// and the line loses a character for it. Built at runtime so no control byte sits in the source.
+const DEL = String.fromCharCode(0x7f)
+const BACKSPACE_KEY = String.fromCharCode(0x08)
+const BACKSPACE = new RegExp(`([${DEL}${BACKSPACE_KEY}])`)
+
+type TerminalInput = {
+  line: string
+  submittedAt?: number
+  submittedText?: string
+}
+
+export type TerminalSubmit = { paneKey: string; at: number; text: string }
+
+const inputByPaneKey = new Map<string, TerminalInput>()
 const promptSubmitByPaneKey = new Map<string, { sessionId: string; at: number }>()
 
 function capOldest(map: Map<string, unknown>): void {
@@ -25,28 +44,42 @@ function capOldest(map: Map<string, unknown>): void {
   }
 }
 
-export function noteTerminalSubmitKeystroke(
-  paneKey: string,
-  data: string,
-  now: number = Date.now()
-): void {
-  if (!isEnterSubmitInput(data)) {
-    return
+/** The line as the person sees it: escapes dropped, Backspace taking a character back, a paste's line breaks folded. */
+function appendTypedInput(line: string, data: string): string {
+  let next = line
+  for (const chunk of stripAnsiEscapeSequences(data).split(BACKSPACE)) {
+    if (chunk === DEL || chunk === BACKSPACE_KEY) {
+      next = next.slice(0, -1)
+      continue
+    }
+    next += chunk.replace(/[\r\n]+/g, ' ').replace(TERMINAL_CONTROL_CHARACTER_PATTERN, '')
   }
-  submitAtByPaneKey.delete(paneKey)
-  submitAtByPaneKey.set(paneKey, now)
-  capOldest(submitAtByPaneKey)
+  return next.length > MAX_LINE_CHARS ? next.slice(0, MAX_LINE_CHARS) : next
 }
 
-/** Terminals whose last Enter fell inside [from, to]. */
-export function panesThatSubmittedBetween(from: number, to: number): string[] {
-  const panes: string[] = []
-  for (const [paneKey, at] of submitAtByPaneKey) {
-    if (at >= from && at <= to) {
-      panes.push(paneKey)
+export function noteTerminalInput(paneKey: string, data: string, now: number = Date.now()): void {
+  const current = inputByPaneKey.get(paneKey) ?? { line: '' }
+  inputByPaneKey.delete(paneKey)
+  if (isEnterSubmitInput(data)) {
+    // Why the earlier text survives an empty Enter: an IME commits with one Enter and
+    // submits with the next, and the second must not erase what the first typed.
+    const submittedText = current.line.length > 0 ? current.line : (current.submittedText ?? '')
+    inputByPaneKey.set(paneKey, { line: '', submittedAt: now, submittedText })
+  } else {
+    inputByPaneKey.set(paneKey, { ...current, line: appendTypedInput(current.line, data) })
+  }
+  capOldest(inputByPaneKey)
+}
+
+/** Terminals whose last Enter fell inside [from, to], with what that Enter sent. */
+export function terminalSubmitsBetween(from: number, to: number): TerminalSubmit[] {
+  const submits: TerminalSubmit[] = []
+  for (const [paneKey, input] of inputByPaneKey) {
+    if (input.submittedAt !== undefined && input.submittedAt >= from && input.submittedAt <= to) {
+      submits.push({ paneKey, at: input.submittedAt, text: input.submittedText ?? '' })
     }
   }
-  return panes
+  return submits
 }
 
 /** A session's prompt report landed on this terminal: the Enter there is spoken for. */
@@ -67,6 +100,6 @@ export function anotherSessionSubmittedInto(
 }
 
 export function resetPaneSubmitKeystrokesForTests(): void {
-  submitAtByPaneKey.clear()
+  inputByPaneKey.clear()
   promptSubmitByPaneKey.clear()
 }

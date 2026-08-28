@@ -452,3 +452,13 @@ git push origin custom
   Enter는 그 세션이 가져간 것). 그리고 새 세션이 페인을 차지하면 **거기 남아 있던 이전 세션들의 결속을
   푼다**(`releaseTerminalToSession`): 그 터미널은 이제 다른 것을 보여 주므로, 이전 잡은 자기 행으로
   돌아간다.
+- **그래도 안 붙는 경우가 남았다**(실측 8/28: 1.3에서 받은 스페어 `e8a8dc8b`, 같은 12초 안에 다른 페인의
+  세션이 `Stop`). 여러 세션을 굴리는 사람은 창 안에 다른 터미널에서도 Enter를 치는 게 보통이라 "후보가
+  정확히 하나"는 자주 실패한다. 이제 **입력된 문장 자체**를 본다: 렌더러가 페인별로 마지막 Enter가 보낸
+  줄을 들고(`noteTerminalInput` — 이스케이프 제거, Backspace 반영, 붙여넣기 줄바꿈 접기, IME의 빈
+  Enter는 직전 줄 유지), 잡의 프롬프트와 대조한다(`promptMatchesTypedText`: 이미지 경로 제거·공백
+  정규화 후 같거나, 8자 이상 포함이거나, 16자 이상 같은 서두). 문장이 맞는 페인이 하나면 다른 Enter가
+  있어도 확정; 문장 비교가 안 되면(짧은 프롬프트 등) 전처럼 Enter가 하나뿐일 때만. 판단은
+  `agent-prompt-terminal-claim.ts`로 뺐고, 매 판단을 한 줄씩 **`logs/agent-status-diag.log`**에
+  남긴다(`agentStatus:noteRoutingDiagnostic`; `claim <세션> at= home= win= enters=[페인@나이:text|enter|
+  taken|closed] -> 결과`) — 렌더러 안의 결정을 나중에 밖에서 볼 수 있는 유일한 길이다.

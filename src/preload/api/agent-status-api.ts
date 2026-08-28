@@ -51,6 +51,8 @@ export type AgentStatusApi = {
   /** Forget a session's terminal, so a background job gets a row of its own again. */
   unbindSessionPane: (args: { sessionId: string }) => void
   listSessionPaneBindings: () => Promise<Record<string, string>>
+  /** One line about a routing decision, kept in `logs/agent-status-diag.log` for later. */
+  noteRoutingDiagnostic: (line: string) => void
   /** What each terminal is working on: the folder its agent is in, and the pull
    *  requests its own output has shown. */
   readTerminalContexts: (args: {

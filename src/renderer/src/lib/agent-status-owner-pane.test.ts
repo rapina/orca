@@ -15,10 +15,7 @@ import {
   worktreeIdForPath,
   type AgentStatusOwnerState
 } from './agent-status-owner-pane'
-import {
-  noteTerminalSubmitKeystroke,
-  resetPaneSubmitKeystrokesForTests
-} from './pane-submit-keystrokes'
+import { noteTerminalInput, resetPaneSubmitKeystrokesForTests } from './pane-submit-keystrokes'
 
 const HOST_LEAF = '11111111-1111-4111-8111-111111111111'
 const OTHER_LEAF = '22222222-2222-4222-8222-222222222222'
@@ -182,7 +179,7 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
   })
 
   it("follows the terminal whose Enter sent the job's first prompt, seconds earlier", () => {
-    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 8_000)
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 8_000)
 
     const owner = resolveAgentStatusOwner(state, submitted())
 
@@ -194,16 +191,30 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
     expect(getAgentSessionPaneBinding(JOB_SESSION)).toBe(OTHER_PANE)
   })
 
-  it('leaves the job on its own row when two terminals submitted', () => {
-    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 2_000)
-    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 1_000)
+  it('leaves the job on its own row when two terminals submitted and neither typed the prompt', () => {
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 2_000)
+    noteTerminalInput(ORCA_PANE, '\r', RECEIVED_AT - 1_000)
 
     expect(resolveAgentStatusOwner(state, submitted()).paneKey).toBe(OWN_ROW)
     expect(getAgentSessionPaneBinding(JOB_SESSION)).toBeUndefined()
   })
 
+  // Why: a person running several sessions presses Enter somewhere else within
+  // the window as a matter of course; the words decide which terminal it was.
+  it('picks the terminal that typed the prompt when several submitted', () => {
+    noteTerminalInput(OTHER_PANE, 'do the thing', RECEIVED_AT - 9_000)
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 8_000)
+    noteTerminalInput(ORCA_PANE, 'git status', RECEIVED_AT - 1_500)
+    noteTerminalInput(ORCA_PANE, '\r', RECEIVED_AT - 1_000)
+
+    const owner = resolveAgentStatusOwner(state, submitted())
+
+    expect(owner.paneKey).toBe(OTHER_PANE)
+    expect(getAgentSessionPaneBinding(JOB_SESSION)).toBe(OTHER_PANE)
+  })
+
   it('skips a terminal another session just reported a prompt into', () => {
-    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 500)
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 500)
     resolveAgentStatusOwner(
       state,
       status({
@@ -232,7 +243,7 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
         providerSession: { key: 'session_id', id: earlierJob }
       })
     )
-    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 2_000)
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 2_000)
 
     const owner = resolveAgentStatusOwner(state, submitted())
 
@@ -242,7 +253,7 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
   })
 
   it('only listens on prompt reports', () => {
-    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 500)
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 500)
 
     expect(resolveAgentStatusOwner(state, submitted({ promptSubmitted: undefined })).paneKey).toBe(
       OWN_ROW
@@ -251,7 +262,7 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
 
   it('moves a bound job to the terminal its next prompt was typed into', () => {
     bindAgentSessionPane(JOB_SESSION, OTHER_PANE)
-    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 1_000)
+    noteTerminalInput(ORCA_PANE, '\r', RECEIVED_AT - 1_000)
 
     const owner = resolveAgentStatusOwner(state, submitted())
 
@@ -262,15 +273,15 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
 
   it('keeps a bound job home past the short window, and when home itself submitted', () => {
     bindAgentSessionPane(JOB_SESSION, OTHER_PANE)
-    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 5_000)
+    noteTerminalInput(ORCA_PANE, '\r', RECEIVED_AT - 5_000)
 
     expect(resolveAgentStatusOwner(state, submitted())).toEqual({
       paneKey: OTHER_PANE,
       sessionRouted: true
     })
 
-    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 600)
-    noteTerminalSubmitKeystroke(ORCA_PANE, '\r', RECEIVED_AT - 400)
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 600)
+    noteTerminalInput(ORCA_PANE, '\r', RECEIVED_AT - 400)
 
     expect(resolveAgentStatusOwner(state, submitted())).toEqual({
       paneKey: OTHER_PANE,

@@ -952,7 +952,8 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       readTerminalContexts: async () => [],
       bindSessionPane: () => {},
       unbindSessionPane: () => {},
-      listSessionPaneBindings: async () => ({})
+      listSessionPaneBindings: async () => ({}),
+      noteRoutingDiagnostic: () => {}
     },
     mobile: {
       listNetworkInterfaces: () => Promise.resolve({ interfaces: [] }),

@@ -3,18 +3,13 @@ import { isStablePaneId, makePaneKey, parsePaneKey } from '../../../shared/stabl
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import type { Worktree } from '../../../shared/worktree/types'
 import {
-  agentSessionsBoundToPane,
   bindAgentSessionPane,
   claimAgentSessionForkParentCheck,
   getAgentSessionPaneBinding,
-  resolveAgentPaneAuthorityKey,
-  unbindAgentSessionPane
+  resolveAgentPaneAuthorityKey
 } from '@/store/slices/agent-pane-authority'
-import {
-  anotherSessionSubmittedInto,
-  notePromptSubmitRoutedTo,
-  panesThatSubmittedBetween
-} from './pane-submit-keystrokes'
+import { releaseTerminalToSession, terminalThatTypedPrompt } from './agent-prompt-terminal-claim'
+import { notePromptSubmitRoutedTo } from './pane-submit-keystrokes'
 import { isPathInsideWorktree } from './terminal-links'
 
 /**
@@ -130,69 +125,6 @@ function backgroundJobPaneKey(
   return paneKey
 }
 
-/** Enter → daemon spawn → boot → hook: a job started from a terminal takes seconds to report its first prompt. */
-const FIRST_PROMPT_SUBMIT_WINDOW_MS = 12_000
-/** An attached job reports a prompt within a second of the keystroke; a slower match is coincidence. */
-const PROMPT_SUBMIT_WINDOW_MS = 3_000
-/** Keystroke clocks run in the renderer, receipt in main; a little slack covers the order. */
-const PROMPT_SUBMIT_CLOCK_SLACK_MS = 1_000
-
-/**
- * The terminal whose Enter sent the prompt this job just reported, if exactly one
- * terminal can have.
- *
- * Why a keystroke: a job hosted by a daemon reports the daemon's pane, and nothing
- * on disk names the terminal whose attached client the person types into. The
- * prompt typed there is the prompt the job reports a moment later. Why exactly
- * one: two terminals with an Enter in the window is a coin toss, and the row of
- * the job's own is the safer place to leave it. Why the remembered home stays when
- * it also submitted: that is the ordinary case, not news. Why a terminal another
- * session just reported a prompt into is skipped: that session took the keystroke.
- * Only a prompt counts - a job bound there earlier keeps sending tool events long
- * after the person moved on to a new session in the same terminal, and treating
- * those as "busy" left every reused terminal unclaimable (measured: three sessions
- * bound to one terminal by hand, one after another).
- */
-function paneThatSubmittedThisPrompt(
-  state: AgentStatusOwnerState,
-  data: AgentStatusIpcPayload,
-  sessionId: string,
-  home: string | null
-): string | null {
-  const window = home ? PROMPT_SUBMIT_WINDOW_MS : FIRST_PROMPT_SUBMIT_WINDOW_MS
-  const from = data.receivedAt - window
-  const candidates = panesThatSubmittedBetween(
-    from,
-    data.receivedAt + PROMPT_SUBMIT_CLOCK_SLACK_MS
-  ).filter((paneKey) => {
-    const tabId = parsePaneKey(paneKey)?.tabId
-    return (
-      Boolean(tabId) &&
-      isOpenTabId(state, tabId!) &&
-      !anotherSessionSubmittedInto(paneKey, sessionId, from)
-    )
-  })
-  if (home && candidates.includes(home)) {
-    return home
-  }
-  return candidates.length === 1 ? (candidates[0] ?? null) : null
-}
-
-/**
- * Give this terminal to the session whose prompt was just typed into it. The
- * sessions bound there before are what it ran earlier; a daemon keeps running
- * them after the person moved on, and their hooks would keep landing on a
- * terminal that now shows something else. They go back to rows of their own.
- */
-function releaseTerminalToSession(paneKey: string, sessionId: string): void {
-  for (const other of agentSessionsBoundToPane(paneKey, sessionId)) {
-    unbindAgentSessionPane(other)
-    if (typeof window !== 'undefined') {
-      window.api?.agentStatus?.unbindSessionPane?.({ sessionId: other })
-    }
-  }
-}
-
 /** Whether this key is a job's own row rather than a terminal. */
 export function isBackgroundJobPaneKey(
   agentStatusByPaneKey: Readonly<Record<string, AgentStatusEntry>> | undefined,
@@ -236,7 +168,12 @@ function resolveOwner(state: AgentStatusOwnerState, data: AgentStatusIpcPayload)
   }
   const home = getAgentSessionPaneBinding(sessionId) ?? null
   const typedInto = data.promptSubmitted
-    ? paneThatSubmittedThisPrompt(state, data, sessionId, home)
+    ? terminalThatTypedPrompt({
+        data,
+        sessionId,
+        home,
+        isOpenTab: (tabId) => isOpenTabId(state, tabId)
+      })
     : null
   if (typedInto && typedInto !== home) {
     releaseTerminalToSession(typedInto, sessionId)

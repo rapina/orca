@@ -4896,6 +4896,9 @@ const api = {
     },
     listSessionPaneBindings: (): Promise<Record<string, string>> =>
       ipcRenderer.invoke('agentStatus:listSessionPaneBindings'),
+    noteRoutingDiagnostic: (line: string): void => {
+      ipcRenderer.send('agentStatus:noteRoutingDiagnostic', line)
+    },
     readTerminalContexts: (args: {
       terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
     }): Promise<
