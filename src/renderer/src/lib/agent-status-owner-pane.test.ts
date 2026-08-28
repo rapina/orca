@@ -202,16 +202,43 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
     expect(getAgentSessionPaneBinding(JOB_SESSION)).toBeUndefined()
   })
 
-  it('skips a terminal whose own session took the keystroke', () => {
+  it('skips a terminal another session just reported a prompt into', () => {
     noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 500)
-    const busy: AgentStatusOwnerState = {
-      ...state,
-      agentStatusByPaneKey: {
-        [OTHER_PANE]: { providerSession: { id: 'another-session' }, updatedAt: RECEIVED_AT - 200 }
-      } as never
-    }
+    resolveAgentStatusOwner(
+      state,
+      status({
+        processHost: 'terminal',
+        paneKey: OTHER_PANE,
+        promptSubmitted: true,
+        receivedAt: RECEIVED_AT - 200,
+        providerSession: { key: 'claude', id: 'another-session' }
+      })
+    )
 
-    expect(resolveAgentStatusOwner(busy, submitted()).paneKey).toBe(OWN_ROW)
+    expect(resolveAgentStatusOwner(state, submitted()).paneKey).toBe(OWN_ROW)
+  })
+
+  // Why: measured on a live machine — three sessions bound to one terminal by
+  // hand, one after another. The job a terminal ran before keeps sending tool
+  // events from its daemon; that is not the terminal being busy.
+  it('takes a reused terminal from the job bound there before, which goes back to its own row', () => {
+    const earlierJob = '9a9a9a9a-1111-4222-8333-444444444444'
+    bindAgentSessionPane(earlierJob, OTHER_PANE)
+    resolveAgentStatusOwner(
+      state,
+      status({
+        processHost: 'background-job',
+        receivedAt: RECEIVED_AT - 100,
+        providerSession: { key: 'claude', id: earlierJob }
+      })
+    )
+    noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 2_000)
+
+    const owner = resolveAgentStatusOwner(state, submitted())
+
+    expect(owner.paneKey).toBe(OTHER_PANE)
+    expect(getAgentSessionPaneBinding(JOB_SESSION)).toBe(OTHER_PANE)
+    expect(getAgentSessionPaneBinding(earlierJob)).toBeUndefined()
   })
 
   it('only listens on prompt reports', () => {

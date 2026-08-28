@@ -91,6 +91,17 @@ export function getAgentSessionPaneBinding(sessionId: string): string | undefine
   return ownerPaneKeyBySessionId.get(sessionId)
 }
 
+/** Every session bound to this terminal, except the one named. */
+export function agentSessionsBoundToPane(paneKey: string, except?: string): string[] {
+  const sessions: string[] = []
+  for (const [sessionId, boundPaneKey] of ownerPaneKeyBySessionId) {
+    if (boundPaneKey === paneKey && sessionId !== except) {
+      sessions.push(sessionId)
+    }
+  }
+  return sessions
+}
+
 /**
  * Forget where a session was bound, so a background job goes back to a row of its
  * own. Returns the pane it was bound to, if any.

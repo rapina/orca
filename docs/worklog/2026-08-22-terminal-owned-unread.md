@@ -444,3 +444,11 @@ git push origin custom
   세 곳에서 막는다: 기록을 만들 때(모든 캡처 경로가 지나는 `sleepingRecordFromEntry`), 저장된 세션을
   들일 때(`withoutBackgroundJobRowRecords` — 고치기 전에 저장된 기록이 다음 실행마다 탭을 만들지
   않게), 복원할 때(`resumeSleepingAgentSessionsForWorktree`, 기록을 지운다).
+- **Enter 상관 결속이 기존 터미널을 재사용할 때 안 붙었다**(실측: 새 세션 셋을 전부 손으로 연결했고, 한
+  페인에 세션 셋이 차례로 결속돼 있었다). 후보 페인에서 "창 안에 다른 세션이 상태를 갱신한 페인"을 빼는
+  규칙이 원인 — 그 페인에 전에 결속된 잡은 사람이 새 세션으로 옮긴 뒤에도 데몬에서 계속 돌며 도구
+  이벤트를 보내니, 재사용한 터미널은 늘 "바쁜" 페인으로 보였다. 이제 뺄 조건은 **다른 세션의 프롬프트
+  보고가 그 페인으로 간 경우**뿐이다(`notePromptSubmitRoutedTo` / `anotherSessionSubmittedInto` — 그
+  Enter는 그 세션이 가져간 것). 그리고 새 세션이 페인을 차지하면 **거기 남아 있던 이전 세션들의 결속을
+  푼다**(`releaseTerminalToSession`): 그 터미널은 이제 다른 것을 보여 주므로, 이전 잡은 자기 행으로
+  돌아간다.

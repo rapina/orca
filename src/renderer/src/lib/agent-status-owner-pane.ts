@@ -3,12 +3,18 @@ import { isStablePaneId, makePaneKey, parsePaneKey } from '../../../shared/stabl
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import type { Worktree } from '../../../shared/worktree/types'
 import {
+  agentSessionsBoundToPane,
   bindAgentSessionPane,
   claimAgentSessionForkParentCheck,
   getAgentSessionPaneBinding,
-  resolveAgentPaneAuthorityKey
+  resolveAgentPaneAuthorityKey,
+  unbindAgentSessionPane
 } from '@/store/slices/agent-pane-authority'
-import { panesThatSubmittedBetween } from './pane-submit-keystrokes'
+import {
+  anotherSessionSubmittedInto,
+  notePromptSubmitRoutedTo,
+  panesThatSubmittedBetween
+} from './pane-submit-keystrokes'
 import { isPathInsideWorktree } from './terminal-links'
 
 /**
@@ -32,7 +38,6 @@ import { isPathInsideWorktree } from './terminal-links'
 export type AgentStatusOwnerState = {
   tabsByWorktree: Record<string, TerminalTab[]>
   worktreesByRepo: Record<string, Worktree[]>
-  agentStatusByPaneKey?: Readonly<Record<string, AgentStatusEntry>>
 }
 
 export type AgentStatusOwner = {
@@ -141,8 +146,12 @@ const PROMPT_SUBMIT_CLOCK_SLACK_MS = 1_000
  * prompt typed there is the prompt the job reports a moment later. Why exactly
  * one: two terminals with an Enter in the window is a coin toss, and the row of
  * the job's own is the safer place to leave it. Why the remembered home stays when
- * it also submitted: that is the ordinary case, not news. Why a terminal whose own
- * status moved for another session is skipped: that session took the keystroke.
+ * it also submitted: that is the ordinary case, not news. Why a terminal another
+ * session just reported a prompt into is skipped: that session took the keystroke.
+ * Only a prompt counts - a job bound there earlier keeps sending tool events long
+ * after the person moved on to a new session in the same terminal, and treating
+ * those as "busy" left every reused terminal unclaimable (measured: three sessions
+ * bound to one terminal by hand, one after another).
  */
 function paneThatSubmittedThisPrompt(
   state: AgentStatusOwnerState,
@@ -157,16 +166,31 @@ function paneThatSubmittedThisPrompt(
     data.receivedAt + PROMPT_SUBMIT_CLOCK_SLACK_MS
   ).filter((paneKey) => {
     const tabId = parsePaneKey(paneKey)?.tabId
-    if (!tabId || !isOpenTabId(state, tabId)) {
-      return false
-    }
-    const own = state.agentStatusByPaneKey?.[paneKey]
-    return !(own && own.providerSession?.id !== sessionId && own.updatedAt >= from)
+    return (
+      Boolean(tabId) &&
+      isOpenTabId(state, tabId!) &&
+      !anotherSessionSubmittedInto(paneKey, sessionId, from)
+    )
   })
   if (home && candidates.includes(home)) {
     return home
   }
   return candidates.length === 1 ? (candidates[0] ?? null) : null
+}
+
+/**
+ * Give this terminal to the session whose prompt was just typed into it. The
+ * sessions bound there before are what it ran earlier; a daemon keeps running
+ * them after the person moved on, and their hooks would keep landing on a
+ * terminal that now shows something else. They go back to rows of their own.
+ */
+function releaseTerminalToSession(paneKey: string, sessionId: string): void {
+  for (const other of agentSessionsBoundToPane(paneKey, sessionId)) {
+    unbindAgentSessionPane(other)
+    if (typeof window !== 'undefined') {
+      window.api?.agentStatus?.unbindSessionPane?.({ sessionId: other })
+    }
+  }
 }
 
 /** Whether this key is a job's own row rather than a terminal. */
@@ -182,6 +206,15 @@ export function resolveAgentStatusOwner(
   state: AgentStatusOwnerState,
   data: AgentStatusIpcPayload
 ): AgentStatusOwner {
+  const owner = resolveOwner(state, data)
+  const sessionId = data.providerSession?.id?.trim()
+  if (data.promptSubmitted && sessionId) {
+    notePromptSubmitRoutedTo(owner.paneKey, sessionId, data.receivedAt)
+  }
+  return owner
+}
+
+function resolveOwner(state: AgentStatusOwnerState, data: AgentStatusIpcPayload): AgentStatusOwner {
   const sessionId = data.providerSession?.id?.trim()
   // Why the legacy path stays: a hook installed before the host field existed
   // says nothing about who runs it, and a binding is the only correction there is.
@@ -206,6 +239,7 @@ export function resolveAgentStatusOwner(
     ? paneThatSubmittedThisPrompt(state, data, sessionId, home)
     : null
   if (typedInto && typedInto !== home) {
+    releaseTerminalToSession(typedInto, sessionId)
     bindAgentSessionPane(sessionId, typedInto)
     return {
       paneKey: resolveAgentPaneAuthorityKey(typedInto),

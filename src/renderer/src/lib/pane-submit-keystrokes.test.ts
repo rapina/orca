@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  anotherSessionSubmittedInto,
+  notePromptSubmitRoutedTo,
   noteTerminalSubmitKeystroke,
   panesThatSubmittedBetween,
   resetPaneSubmitKeystrokesForTests
@@ -32,5 +34,13 @@ describe('pane submit keystrokes', () => {
     }
     expect(panesThatSubmittedBetween(0, 43)).toEqual([])
     expect(panesThatSubmittedBetween(44, 44)).toEqual(['tab:44'])
+  })
+
+  it("knows when another session's prompt already took a terminal's Enter", () => {
+    notePromptSubmitRoutedTo('tab:a', 'session-1', 500)
+    expect(anotherSessionSubmittedInto('tab:a', 'session-2', 400)).toBe(true)
+    expect(anotherSessionSubmittedInto('tab:a', 'session-1', 400)).toBe(false)
+    expect(anotherSessionSubmittedInto('tab:a', 'session-2', 600)).toBe(false)
+    expect(anotherSessionSubmittedInto('tab:b', 'session-2', 0)).toBe(false)
   })
 })
