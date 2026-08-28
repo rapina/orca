@@ -211,7 +211,7 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
         paneKey: OTHER_PANE,
         promptSubmitted: true,
         receivedAt: RECEIVED_AT - 200,
-        providerSession: { key: 'claude', id: 'another-session' }
+        providerSession: { key: 'session_id', id: 'another-session' }
       })
     )
 
@@ -229,7 +229,7 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
       status({
         processHost: 'background-job',
         receivedAt: RECEIVED_AT - 100,
-        providerSession: { key: 'claude', id: earlierJob }
+        providerSession: { key: 'session_id', id: earlierJob }
       })
     )
     noteTerminalSubmitKeystroke(OTHER_PANE, '\r', RECEIVED_AT - 2_000)
