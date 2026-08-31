@@ -74,6 +74,79 @@ export function extractPullRequestUrls(text: string): string[] {
   return seen
 }
 
+/** Why bounded: a torn or hostile transcript must not grow this set without end. */
+const MAX_TRACKED_CREATE_TOOL_USES = 64
+// Why a second copy: `test` on a global regex carries lastIndex between calls.
+const PULL_REQUEST_CREATE_MARK_TEST = new RegExp(PULL_REQUEST_CREATE_MARK.source)
+
+function collectRecordUrls(value: unknown, into: string[]): void {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '')
+  for (const match of text.matchAll(PULL_REQUEST_URL)) {
+    if (!into.includes(match[0])) {
+      into.push(match[0])
+    }
+  }
+}
+
+/**
+ * Pull requests an agent opened, read from its transcript.
+ *
+ * Why not the terminal's recording alone: an agent's TUI redraws its conversation
+ * for as long as it is on screen, so the link it printed survives hundreds of
+ * times while the command that made it scrolls out of the recording entirely
+ * (measured on a live terminal: 620 copies of the link, not one `gh pr create`).
+ * The transcript keeps the two as records - the tool call with the command, and
+ * the result it returned - so the link that follows a create is exact.
+ *
+ * A torn first line, a half-written last one, and records read out of order are
+ * all ordinary here; every line that does not parse is skipped.
+ */
+export function extractPullRequestUrlsFromTranscript(text: string): string[] {
+  const createToolUseIds = new Set<string>()
+  const urls: string[] = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      continue
+    }
+    let record: unknown
+    try {
+      record = JSON.parse(trimmed)
+    } catch {
+      continue
+    }
+    const content = ((record as Record<string, unknown>)?.message as Record<string, unknown>)
+      ?.content
+    if (!Array.isArray(content)) {
+      continue
+    }
+    for (const raw of content) {
+      const part = raw as Record<string, unknown>
+      if (part?.type === 'tool_use' && typeof part.id === 'string') {
+        // Why the whole input: the command can be nested (a heredoc body, a shell
+        // wrapper), and a create is a create wherever the words sit.
+        if (PULL_REQUEST_CREATE_MARK_TEST.test(JSON.stringify(part.input ?? ''))) {
+          const oldest = createToolUseIds.values().next().value
+          if (createToolUseIds.size >= MAX_TRACKED_CREATE_TOOL_USES && oldest !== undefined) {
+            createToolUseIds.delete(oldest)
+          }
+          createToolUseIds.add(part.id)
+        }
+        continue
+      }
+      if (
+        part?.type === 'tool_result' &&
+        typeof part.tool_use_id === 'string' &&
+        createToolUseIds.has(part.tool_use_id)
+      ) {
+        collectRecordUrls(part.content, urls)
+        collectRecordUrls((record as Record<string, unknown>).toolUseResult, urls)
+      }
+    }
+  }
+  return urls
+}
+
 /** `#653` for a pull request, `!42` for a merge request — what a row has room for. */
 export function pullRequestLabel(url: string): string {
   const number = url.slice(url.lastIndexOf('/') + 1)

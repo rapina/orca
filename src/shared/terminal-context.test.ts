@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   extractPullRequestUrls,
+  extractPullRequestUrlsFromTranscript,
   parseTranscriptWorkingDirectory,
   pullRequestLabel,
   worktreeNameFromPath
@@ -120,6 +121,79 @@ describe('parseTranscriptWorkingDirectory', () => {
 
   it('returns null when nothing in the tail recorded one', () => {
     expect(parseTranscriptWorkingDirectory('{"cut":\n{"a":1}\n')).toBeNull()
+  })
+})
+
+// Why this source at all: an agent's TUI redraws its conversation, so the link it
+// printed survives in the recording hundreds of times while the command that made
+// it scrolls out entirely (measured on a live terminal: 620 copies of the link and
+// not one `gh pr create`). The transcript keeps the call and its result as records.
+describe('extractPullRequestUrlsFromTranscript', () => {
+  function toolUse(id: string, command: string): string {
+    return JSON.stringify({
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }]
+      }
+    })
+  }
+
+  function toolResult(id: string, content: unknown, toolUseResult?: unknown): string {
+    return JSON.stringify({
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] },
+      ...(toolUseResult === undefined ? {} : { toolUseResult })
+    })
+  }
+
+  it('takes the link a create call returned', () => {
+    const text = [
+      toolUse('toolu_1', 'cd D:/w && gh pr create --base main --body-file "$JOB/pr-body.md"'),
+      toolResult('toolu_1', 'https://github.com/rapina/cozy-sandbox/pull/772\nShell cwd was reset')
+    ].join('\n')
+
+    expect(extractPullRequestUrlsFromTranscript(text)).toEqual([
+      'https://github.com/rapina/cozy-sandbox/pull/772'
+    ])
+  })
+
+  it('reads a result given as blocks or in the structured field', () => {
+    const text = [
+      toolUse('toolu_1', 'glab mr create --fill'),
+      toolResult('toolu_1', [{ type: 'text', text: 'https://gitlab.com/g/p/-/merge_requests/42' }]),
+      toolUse('toolu_2', 'gh pr create --fill'),
+      toolResult('toolu_2', '', { stdout: 'https://github.com/o/r/pull/9' })
+    ].join('\n')
+
+    expect(extractPullRequestUrlsFromTranscript(text)).toEqual([
+      'https://gitlab.com/g/p/-/merge_requests/42',
+      'https://github.com/o/r/pull/9'
+    ])
+  })
+
+  it('leaves out the ones it only looked at', () => {
+    const text = [
+      toolUse('toolu_1', 'gh pr view 700 --json url'),
+      toolResult('toolu_1', 'https://github.com/o/r/pull/700'),
+      toolUse('toolu_2', 'gh pr list'),
+      toolResult('toolu_2', 'https://github.com/o/r/pull/701'),
+      JSON.stringify({
+        message: { role: 'assistant', content: [{ type: 'text', text: 'see /pull/702' }] }
+      })
+    ].join('\n')
+
+    expect(extractPullRequestUrlsFromTranscript(text)).toEqual([])
+  })
+
+  it('survives a torn first line, a half-written last one and blank space', () => {
+    const text = [
+      '{"message":{"content":[{"type":"tool_re',
+      '',
+      toolUse('toolu_1', 'gh pr create'),
+      toolResult('toolu_1', 'https://github.com/o/r/pull/5'),
+      '{"message":{"content":[{"type":"too'
+    ].join('\n')
+
+    expect(extractPullRequestUrlsFromTranscript(text)).toEqual(['https://github.com/o/r/pull/5'])
   })
 })
 
