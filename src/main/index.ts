@@ -334,6 +334,7 @@ import {
 import type { AgentStatusState } from '../shared/agent-status-types'
 import { resolveTuiAgentPermissionMode } from '../shared/tui-agent-permissions'
 import { isAskUserQuestionTool } from '../shared/agent-question-answered-intent'
+import { agentStatusRoutingFields } from '../shared/agent-status-routing-fields'
 import type { TerminalSideEffectBatch } from '../shared/terminal-side-effect-facts'
 import {
   HEADLESS_RUNTIME_WINDOW_ID,
@@ -1549,7 +1550,13 @@ function openMainWindow(options: { revealOnDidFinishLoad?: boolean } = {}): Brow
       providerSessionOnly,
       promptInteractionKey,
       restoredUnconfirmed,
-      isReplay
+      isReplay,
+      // Why these three: they are what tells the renderer which terminal a status
+      // belongs to. Missing here, every routing decision ran only on the snapshot
+      // after a restart, never on the events that arrive while a person works.
+      processHost,
+      cwd,
+      hookEventName
     }) => {
       if (mainWindow?.isDestroyed()) {
         return
@@ -1595,7 +1602,8 @@ function openMainWindow(options: { revealOnDidFinishLoad?: boolean } = {}): Brow
         ...(providerSession ? { providerSession } : {}),
         ...(promptInteractionKey ? { promptInteractionKey } : {}),
         ...(restoredUnconfirmed ? { restoredUnconfirmed: true } : {}),
-        ...(orchestration ? { orchestration } : {})
+        ...(orchestration ? { orchestration } : {}),
+        ...agentStatusRoutingFields({ processHost, cwd, hookEventName })
       }
       mainWindow?.webContents.send('agentStatus:set', statusEvent)
       if (!suppressSyntheticCodexAutoApprovalTitle || isAskUserQuestionTool(payload.toolName)) {

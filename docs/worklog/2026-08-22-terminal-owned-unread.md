@@ -491,3 +491,12 @@ git push origin custom
   `agent-question-answered-intent.ts`) 서버가 **세션으로 행을 찾는다**(`findInferenceTarget`: 페인 키가
   맞는 행이면 그대로, 아니면 그 세션의 가장 최근 행; 세션이 없으면 예전 동작). 나머지 로직은 이미 찾은
   행의 `paneKey`로 돌기 때문에 손댈 데가 없다.
+- **결속이 계속 안 붙던 진짜 이유는 여기 있었다.** 상태를 렌더러로 보내는 길이 둘인데 —
+  훅 서버의 스냅샷(`toAgentStatusIpcPayload`)과 `main/index.ts`의 **실시간 푸시** — 실시간 쪽은
+  페이로드를 손으로 조립하면서 `processHost`·`cwd`·`promptSubmitted`를 **하나도 싣지 않았다**(파일 전체에
+  그 이름이 없었다). `resolveAgentStatusOwner`는 `processHost`가 없으면 레거시 경로로 빠지므로, 잡 자기
+  행·Enter/문장 대조 결속은 **재시작 직후 스냅샷 재생 때만** 돌고 평소엔 한 번도 안 돌았다 — 8/31에
+  `agent-status-diag.log`가 비어 있던 것이 그 증거다(판단 함수 자체가 안 불렸다). 잡의 행이 `1.-`로 보인
+  건 렌더러가 고른 게 아니라 **서버가 이미 키를 `<탭>:<세션>`으로 바꿔 보내기 때문**이고, 그래서 증상만
+  같고 결속은 영영 안 붙었다. 이제 세 필드를 `agentStatusRoutingFields()` 한 곳에 모아 스냅샷과 실시간
+  푸시가 같이 쓴다 — 다음 필드도 여기 추가하면 두 길이 다시 어긋나지 않는다.

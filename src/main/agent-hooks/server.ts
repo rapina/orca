@@ -88,6 +88,7 @@ import {
   normalizeAgentProviderSession,
   type AgentProviderSessionMetadata
 } from '../../shared/agent-session-resume'
+import { agentStatusRoutingFields } from '../../shared/agent-status-routing-fields'
 import { isCommandCodeNewTurnWhileWorking } from '../../shared/command-code-turn-boundary'
 import { noteStaleClaudeHookScript } from './stale-hook-script-refresh'
 
@@ -444,9 +445,7 @@ function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentSta
     ...(entry.providerSessionOnly ? { providerSessionOnly: true } : {}),
     ...(entry.promptInteractionKey ? { promptInteractionKey: entry.promptInteractionKey } : {}),
     ...(entry.restoredUnconfirmed ? { restoredUnconfirmed: true } : {}),
-    ...(entry.processHost ? { processHost: entry.processHost } : {}),
-    ...(entry.cwd ? { cwd: entry.cwd } : {}),
-    ...(entry.hookEventName === 'UserPromptSubmit' ? { promptSubmitted: true } : {}),
+    ...agentStatusRoutingFields(entry),
     ...entry.payload
   }
 }
