@@ -31,6 +31,35 @@ import {
 
 const AGENT_NOTIFICATION_SNAPSHOT_MAX_AGE_MS = 10_000
 
+/**
+ * The pane a click on this notification may focus.
+ *
+ * A closed tab keeps its terminals running, so an agent still working in one goes
+ * on notifying - and the click brought the whole tab back and landed on whatever
+ * pane it restored first (measured: a finished turn reopened a tab closed long
+ * before and focused its pane 1). A background job's row is not a terminal
+ * either, and has no leaf to focus. Without a pane the click still opens the
+ * workspace the work belongs to, which is as far as it can honestly go.
+ */
+function focusableNotificationPaneKey(
+  state: {
+    tabsByWorktree: Record<string, { id: string }[]>
+    agentStatusByPaneKey: Record<string, AgentStatusEntry>
+  },
+  worktreeId: string,
+  paneKey: string | undefined
+): string | undefined {
+  if (!paneKey || isBackgroundJobPaneKey(state.agentStatusByPaneKey, paneKey)) {
+    return undefined
+  }
+  const tabId = getPaneKeyTabId(paneKey)
+  const tabs = state.tabsByWorktree[worktreeId] ?? []
+  // Why the emptiness check: an inactive workspace's tab list can still be
+  // hydrating, and a live pane must not lose its click target for that.
+  const tabIsGone = tabs.length > 0 && !tabs.some((tab) => tab.id === tabId)
+  return tabIsGone ? undefined : paneKey
+}
+
 function agentSnapshotMatchesExplicitTitle(
   snapshot: { agentType?: string | null } | undefined,
   explicitTitleAgentType: string | null
@@ -141,17 +170,19 @@ export function dispatchTerminalNotification(
     return
   }
 
-  if (event.source === 'agent-task-complete') {
-    const terminalAttentionEnabled = state.settings?.experimentalTerminalAttention === true
-    // Why resolved here: this event names a pane, not the session that finished, so
-    // on its own it cannot follow a session moved to the terminal it is really in -
-    // the status row moves and the unread it leaves stays behind. A pane still
-    // holding an agent of its own owns the event, so only an empty one defers.
-    const completionPaneKey = event.paneKey
+  // Why resolved here: this event names a pane, not the session that finished, so
+  // on its own it cannot follow a session moved to the terminal it is really in -
+  // the status row moves and the unread it leaves stays behind. A pane still
+  // holding an agent of its own owns the event, so only an empty one defers.
+  const completionPaneKey =
+    event.source === 'agent-task-complete' && event.paneKey
       ? state.agentStatusByPaneKey[event.paneKey]
         ? event.paneKey
         : (resolveMovedAgentPaneKey(event.paneKey) ?? event.paneKey)
       : event.paneKey
+
+  if (event.source === 'agent-task-complete') {
+    const terminalAttentionEnabled = state.settings?.experimentalTerminalAttention === true
     let tabId: string | null = null
     if (completionPaneKey) {
       tabId = getPaneKeyTabId(completionPaneKey)
@@ -217,11 +248,16 @@ export function dispatchTerminalNotification(
         agentInterrupted: agentStatus.interrupted
       }
     : {}
+  // Why not the event's own pane: a parked pane dispatches under its own key after
+  // the session it held moved on, so clicking the notification walked to the
+  // terminal the agent had left - and reopened that tab when it had been closed.
+  // The unread went to the resolved pane, and so does the ack that dismisses this.
+  const notificationPaneKey = focusableNotificationPaneKey(state, worktreeId, completionPaneKey)
   const notificationId =
     event.source === 'agent-task-complete'
       ? buildAgentNotificationId({
           worktreeId,
-          paneKey: event.paneKey,
+          paneKey: notificationPaneKey,
           // Why: delayed hook completions may dispatch after PTY teardown has
           // removed the live row; carry the hook timing so the OS notification
           // still has the same dismissible id as the unread agent event.
@@ -234,7 +270,7 @@ export function dispatchTerminalNotification(
       source: event.source,
       ...(notificationId ? { notificationId } : {}),
       worktreeId,
-      paneKey: event.paneKey,
+      paneKey: notificationPaneKey,
       repoLabel: repo?.displayName,
       worktreeLabel: worktree?.displayName || worktree?.branch || worktreeId,
       hasMultipleActiveRepos: countReposNeedingNotificationDisambiguation(state) > 1,

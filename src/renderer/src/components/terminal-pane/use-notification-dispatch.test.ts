@@ -6,6 +6,10 @@ import {
 } from '../../../../shared/agent-status-types'
 import type { TerminalLayoutSnapshot } from '../../../../shared/terminal-tab-types'
 import { buildAgentNotificationId } from '../../../../shared/agent-notification-id'
+import {
+  bindAgentSessionPane,
+  resetAgentPaneAuthorityAliasesForTests
+} from '@/store/slices/agent-pane-authority'
 
 type MockState = {
   activeWorktreeId: string | null
@@ -764,6 +768,46 @@ describe('dispatchTerminalNotification', () => {
     expect(mockState.markWorktreeUnread).not.toHaveBeenCalled()
     expect(mockState.markTerminalTabUnread).not.toHaveBeenCalled()
     expect(mockState.markTerminalPaneUnread).not.toHaveBeenCalled()
+  })
+
+  // Why: a closed tab keeps its terminals running, so an agent working in one
+  // still notifies. Measured — clicking that notification brought the tab back
+  // and focused its pane 1, a terminal the person had not been in for hours.
+  it('offers no pane to focus when the tab it belongs to has been closed', () => {
+    const closedLeafId = '33333333-3333-4333-8333-333333333333'
+    const closedPaneKey = `tab-closed:${closedLeafId}`
+    mockState.ptyIdsByTabId['tab-closed'] = ['pty-closed']
+    mockState.terminalLayoutsByTabId['tab-closed'] = {
+      root: { type: 'leaf', leafId: closedLeafId },
+      activeLeafId: closedLeafId,
+      expandedLeafId: null,
+      ptyIdsByLeafId: { [closedLeafId]: 'pty-closed' }
+    }
+    mockState.agentStatusByPaneKey[closedPaneKey] = makeAgentStatus(closedPaneKey)
+
+    dispatchTerminalNotification('wt-primary', {
+      source: 'agent-task-complete',
+      terminalTitle: 'codex',
+      paneKey: closedPaneKey
+    })
+
+    expect(getLastNotificationDispatchArg()?.paneKey).toBeUndefined()
+    // Why still unread: the turn did finish, and the terminal list is where it shows.
+    expect(mockState.markAgentCompletionPaneUnread).toHaveBeenCalledWith(closedPaneKey)
+  })
+
+  it('points at the terminal a moved session went to, the one the unread went to', () => {
+    resetAgentPaneAuthorityAliasesForTests()
+    bindAgentSessionPane('session-moved', paneKey, stalePaneKey)
+
+    dispatchTerminalNotification('wt-primary', {
+      source: 'agent-task-complete',
+      terminalTitle: 'codex',
+      paneKey: stalePaneKey
+    })
+
+    expect(getLastNotificationDispatchArg()?.paneKey).toBe(paneKey)
+    expect(mockState.markAgentCompletionPaneUnread).toHaveBeenCalledWith(paneKey)
   })
 
   it('still drops stale notifications when neither pty liveness nor fresh hook status exists', () => {

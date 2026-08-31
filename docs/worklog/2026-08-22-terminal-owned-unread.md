@@ -471,3 +471,14 @@ git push origin custom
   ③ 네이티브 챗 컴포저의 전송은 `xterm.onData`를 우회해 기록이 아예 없었다 — `NativeChatView`의
   `onOptimisticSend`에서 `noteTerminalPromptSubmitted`로 남긴다(컴포저 파일은 이미 max-lines 한도 400에
   정확히 붙어 있어 한 줄도 못 넣는다).
+- **알림을 누르면 닫아 둔 탭이 되살아나며 엉뚱한 페인이 잡혔다**(실측 8/31: 3.1 응답 알림 → 4.1 포커스 +
+  닫힌 4번 탭 복원). 탭을 닫아도 그 안의 터미널은 계속 돌기 때문에, 거기서 일하던 에이전트가 끝나면
+  파킹된 감시자가 **그 닫힌 페인의 키로** 알림을 쏜다. 게이트는 다 통과한다 —
+  `hasLivePtyForNotification`은 워크스페이스에 살아 있는 pty가 하나라도 있으면 참이고,
+  `isCurrentLivePaneKey`는 **탭이 열려 있는지 보지 않는다**(닫힌 탭의 `ptyIdsByTabId`·레이아웃은 그대로
+  남아 있다). 클릭은 `ui:focusTerminal{tabId,leafId}` → `setActiveTab`이라 탭이 되살아나고 리프를 못
+  찾으면 첫 페인으로 떨어진다. 이제 알림에 실을 페인을 `focusableNotificationPaneKey`로 거른다: 워크스페이스
+  탭 목록이 하이드레이션됐는데 그 탭이 없으면(=닫힘) 또는 잡의 자기 행이면 **페인을 싣지 않는다** — 클릭은
+  워크스페이스만 연다. 덤으로 알림·알림 id가 언리드와 **같은 해석 키**(`completionPaneKey`)를 쓴다:
+  전에는 언리드·해제(ack, `ui.ts`의 `buildAgentNotificationId`)는 이동 해석 키, OS 알림만 원본 키라
+  세션이 옮겨간 뒤엔 알림이 안 지워지기도 했다.
