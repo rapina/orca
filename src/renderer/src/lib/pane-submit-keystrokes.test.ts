@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  anotherSessionSubmittedInto,
+  anotherSessionTookSubmit,
   notePromptSubmitRoutedTo,
   noteTerminalInput,
+  noteTerminalPromptSubmitted,
   resetPaneSubmitKeystrokesForTests,
   terminalSubmitsBetween
 } from './pane-submit-keystrokes'
@@ -64,11 +65,19 @@ describe('pane submit keystrokes', () => {
     ])
   })
 
+  it("takes Orca's own composer as a submit, since it never reaches xterm", () => {
+    noteTerminalPromptSubmitted('tab:a', '계속', 100)
+
+    expect(terminalSubmitsBetween(100, 100)).toEqual([{ paneKey: 'tab:a', at: 100, text: '계속' }])
+  })
+
+  // Why measured against the submit: a person working in a terminal has a session
+  // reporting prompts there all the time, and the next Enter is still theirs to give.
   it("knows when another session's prompt already took a terminal's Enter", () => {
     notePromptSubmitRoutedTo('tab:a', 'session-1', 500)
-    expect(anotherSessionSubmittedInto('tab:a', 'session-2', 400)).toBe(true)
-    expect(anotherSessionSubmittedInto('tab:a', 'session-1', 400)).toBe(false)
-    expect(anotherSessionSubmittedInto('tab:a', 'session-2', 600)).toBe(false)
-    expect(anotherSessionSubmittedInto('tab:b', 'session-2', 0)).toBe(false)
+    expect(anotherSessionTookSubmit('tab:a', 'session-2', 400)).toBe(true)
+    expect(anotherSessionTookSubmit('tab:a', 'session-1', 400)).toBe(false)
+    expect(anotherSessionTookSubmit('tab:a', 'session-2', 600)).toBe(false)
+    expect(anotherSessionTookSubmit('tab:b', 'session-2', 0)).toBe(false)
   })
 })

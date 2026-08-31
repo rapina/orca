@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../store'
+import { noteTerminalPromptSubmitted } from '@/lib/pane-submit-keystrokes'
 import { useNativeChatLaunchDraftSignal } from './use-native-chat-launch-draft-adoption'
 import { useNativeChatRetainedSession } from './use-native-chat-retained-session'
 import { selectNativeChatViewState } from './native-chat-view-state'
@@ -229,6 +230,9 @@ function NativeChatResolvedView({
     (text: string, imagePaths?: string[]) => {
       setWorkingInterrupted(false)
       const sentAt = Date.now()
+      // Why: composer writes bypass xterm, so without this the terminal a
+      // background job's prompt was sent from leaves no trace to route it by.
+      noteTerminalPromptSubmitted(paneKey, text, sentAt)
       const boundary = session.messages.at(-1)
       const entry: NativeChatPendingSend = {
         id: nextNativeChatPendingSendId(sentAt),
@@ -241,7 +245,7 @@ function NativeChatResolvedView({
       setPending(appendPendingSendCache(pendingScope, entry))
       return entry.id
     },
-    [pendingScope, session.messages]
+    [paneKey, pendingScope, session.messages]
   )
   const onOptimisticSendCanceled = useCallback(
     (pendingId: string) => {

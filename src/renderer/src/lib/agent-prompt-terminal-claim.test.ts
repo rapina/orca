@@ -38,9 +38,16 @@ describe('promptMatchesTypedText', () => {
     ).toBe(true)
   })
 
-  it('rejects different words, short texts and nothing', () => {
+  // Why: "계속" is a whole prompt. Held below a length floor, a continuation typed
+  // into a terminal landed on a row of its own (measured 8/31).
+  it('matches a prompt as short as one word', () => {
+    expect(promptMatchesTypedText('계속', '계속')).toBe(true)
+    expect(promptMatchesTypedText('y', 'y')).toBe(true)
+  })
+
+  it('rejects different words and nothing', () => {
     expect(promptMatchesTypedText('fix the build', 'run the tests')).toBe(false)
-    expect(promptMatchesTypedText('y', 'y')).toBe(false)
+    expect(promptMatchesTypedText('계속', '중단')).toBe(false)
     expect(promptMatchesTypedText('fix the build', '')).toBe(false)
     expect(promptMatchesTypedText(undefined, 'fix the build')).toBe(false)
   })

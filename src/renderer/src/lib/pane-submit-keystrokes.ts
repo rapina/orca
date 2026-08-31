@@ -82,6 +82,24 @@ export function terminalSubmitsBetween(from: number, to: number): TerminalSubmit
   return submits
 }
 
+/**
+ * A prompt sent from Orca's own composer, which writes to the runtime instead of
+ * xterm and so is never seen as typing. It is a submit all the same.
+ */
+export function noteTerminalPromptSubmitted(
+  paneKey: string,
+  text: string,
+  now: number = Date.now()
+): void {
+  inputByPaneKey.delete(paneKey)
+  inputByPaneKey.set(paneKey, {
+    line: '',
+    submittedAt: now,
+    submittedText: appendTypedInput('', text)
+  })
+  capOldest(inputByPaneKey)
+}
+
 /** A session's prompt report landed on this terminal: the Enter there is spoken for. */
 export function notePromptSubmitRoutedTo(paneKey: string, sessionId: string, at: number): void {
   promptSubmitByPaneKey.delete(paneKey)
@@ -89,14 +107,23 @@ export function notePromptSubmitRoutedTo(paneKey: string, sessionId: string, at:
   capOldest(promptSubmitByPaneKey)
 }
 
-/** Whether a session other than this one reported a prompt into the terminal since `from`. */
-export function anotherSessionSubmittedInto(
+/**
+ * Whether another session already took the submit made at `submitAt`.
+ *
+ * Why measured against that submit and not the window: a person working in a
+ * terminal has another session reporting prompts there all the time, and taking
+ * that as "this terminal is spoken for" hid the terminal from the next session
+ * they started in it (measured: a continuation typed into a busy terminal landed
+ * on a row of its own). A report can only have claimed a submit that already
+ * existed when it arrived.
+ */
+export function anotherSessionTookSubmit(
   paneKey: string,
   sessionId: string,
-  from: number
+  submitAt: number
 ): boolean {
   const last = promptSubmitByPaneKey.get(paneKey)
-  return last !== undefined && last.sessionId !== sessionId && last.at >= from
+  return last !== undefined && last.sessionId !== sessionId && last.at >= submitAt
 }
 
 export function resetPaneSubmitKeystrokesForTests(): void {

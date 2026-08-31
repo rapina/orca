@@ -6,7 +6,7 @@ import {
   unbindAgentSessionPane
 } from '@/store/slices/agent-pane-authority'
 import {
-  anotherSessionSubmittedInto,
+  anotherSessionTookSubmit,
   terminalSubmitsBetween,
   type TerminalSubmit
 } from './pane-submit-keystrokes'
@@ -26,8 +26,6 @@ const FIRST_PROMPT_SUBMIT_WINDOW_MS = 12_000
 const PROMPT_SUBMIT_WINDOW_MS = 3_000
 /** Keystroke clocks run in the renderer, receipt in main; a little slack covers the order. */
 const PROMPT_SUBMIT_CLOCK_SLACK_MS = 1_000
-/** Shorter than this, equal text says nothing - a "y" is typed everywhere. */
-const MIN_MATCHING_TEXT_CHARS = 3
 /** One text inside the other counts from here: a prompt with a word added at either end. */
 const MIN_CONTAINED_TEXT_CHARS = 8
 /** A shared opening this long is the same prompt, edited or cut short by the terminal. */
@@ -41,6 +39,11 @@ function normalizePromptText(text: string): string {
  * Whether what was typed into a terminal is the prompt a session reported. Why
  * not equality alone: the terminal sees the paste path and the edits, the hook
  * sees the final text; either can carry a little the other does not.
+ *
+ * Why equal text counts however short: "계속" is a whole prompt, and holding it
+ * below a length floor sent a continuation to a row of its own. A word typed in
+ * two terminals matches both, and two matches are no answer - which is what the
+ * caller does with them.
  */
 export function promptMatchesTypedText(
   prompt: string | undefined,
@@ -51,7 +54,7 @@ export function promptMatchesTypedText(
   }
   const reported = normalizePromptText(prompt)
   const sent = normalizePromptText(typed)
-  if (reported.length < MIN_MATCHING_TEXT_CHARS || sent.length < MIN_MATCHING_TEXT_CHARS) {
+  if (reported.length === 0 || sent.length === 0) {
     return false
   }
   if (reported === sent) {
@@ -113,7 +116,7 @@ export function terminalThatTypedPrompt(args: {
       notes.push(`${short(submit.paneKey)}@${age}ms:closed`)
       continue
     }
-    if (anotherSessionSubmittedInto(submit.paneKey, sessionId, from)) {
+    if (anotherSessionTookSubmit(submit.paneKey, sessionId, submit.at)) {
       notes.push(`${short(submit.paneKey)}@${age}ms:taken`)
       continue
     }

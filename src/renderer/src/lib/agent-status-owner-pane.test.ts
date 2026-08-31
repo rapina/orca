@@ -229,6 +229,31 @@ describe('a prompt typed into a terminal claims the job that reports it', () => 
     expect(resolveAgentStatusOwner(state, submitted()).paneKey).toBe(OWN_ROW)
   })
 
+  // Why: measured 8/31 — a "계속" typed into a terminal that had been working for
+  // a while landed on a row of its own, with the bell of that terminal's earlier
+  // session still on it. The earlier session's prompt is older than this Enter,
+  // so it took nothing; and two characters are a whole prompt.
+  it('claims a busy terminal for the continuation typed into it after its last prompt', () => {
+    resolveAgentStatusOwner(
+      state,
+      status({
+        processHost: 'terminal',
+        paneKey: OTHER_PANE,
+        promptSubmitted: true,
+        receivedAt: RECEIVED_AT - 10_000,
+        providerSession: { key: 'session_id', id: 'earlier-session' }
+      })
+    )
+    noteTerminalInput(OTHER_PANE, '계속', RECEIVED_AT - 3_000)
+    noteTerminalInput(OTHER_PANE, '\r', RECEIVED_AT - 2_900)
+    noteTerminalInput(ORCA_PANE, '\r', RECEIVED_AT - 2_000)
+
+    const owner = resolveAgentStatusOwner(state, submitted({ prompt: '계속' }))
+
+    expect(owner.paneKey).toBe(OTHER_PANE)
+    expect(getAgentSessionPaneBinding(JOB_SESSION)).toBe(OTHER_PANE)
+  })
+
   // Why: measured on a live machine — three sessions bound to one terminal by
   // hand, one after another. The job a terminal ran before keeps sending tool
   // events from its daemon; that is not the terminal being busy.

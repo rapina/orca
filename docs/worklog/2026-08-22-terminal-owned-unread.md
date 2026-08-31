@@ -462,3 +462,12 @@ git push origin custom
   `agent-prompt-terminal-claim.ts`로 뺐고, 매 판단을 한 줄씩 **`logs/agent-status-diag.log`**에
   남긴다(`agentStatus:noteRoutingDiagnostic`; `claim <세션> at= home= win= enters=[페인@나이:text|enter|
   taken|closed] -> 결과`) — 렌더러 안의 결정을 나중에 밖에서 볼 수 있는 유일한 길이다.
+- **`1.- 계속`**(실측 8/31, 종은 2.3에 제대로 뜨고 물음표만 자기 행으로): 세 가지가 겹쳤다. ① "계속"은
+  두 글자라 문장 대조 최소 길이(3자)에 걸려 비교를 건너뛰었다 — **같은 문장이면 길이는 안 따진다**로
+  바꿨다(포함·서두 판정만 8·16자 하한 유지). 같은 말을 두 터미널에 쳤으면 후보가 둘이 되어 자기 행에
+  남는데, 그게 옳다. ② "다른 세션이 이 터미널에 프롬프트를 냈다"는 제외 조건이 **창 시작 시각** 기준이라,
+  조금 전까지 그 터미널에서 일하던 세션 때문에 **그 뒤에 친 Enter까지** 남의 것으로 쳤다 — 기준을 **그
+  Enter 시각**으로 바꿨다(`anotherSessionTookSubmit`): 나중에 온 보고만 그 Enter를 가져갈 수 있다.
+  ③ 네이티브 챗 컴포저의 전송은 `xterm.onData`를 우회해 기록이 아예 없었다 — `NativeChatView`의
+  `onOptimisticSend`에서 `noteTerminalPromptSubmitted`로 남긴다(컴포저 파일은 이미 max-lines 한도 400에
+  정확히 붙어 있어 한 줄도 못 넣는다).
