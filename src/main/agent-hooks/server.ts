@@ -844,6 +844,44 @@ export class AgentHookServer {
     return Object.freeze({ paneKey, source: 'current_hook' })
   }
 
+  /**
+   * The cached row an inference is about.
+   *
+   * Why not the pane key alone: a background job's row is kept here under a key of
+   * its own (`<tab>:<session>`), while the person pressing Escape is in the
+   * terminal the job was bound to - so the pane key they send names no row at all,
+   * and every inference for a job did nothing at all (measured: Escape left the
+   * question mark up for the rest of the turn). The session is what both sides
+   * agree on. A pane key that does name the right row still wins, and a request
+   * without a session keeps the old behaviour.
+   */
+  private findInferenceTarget(
+    paneKey: string,
+    providerSessionId: string | undefined
+  ): EnrichedAgentHookEventPayload | undefined {
+    const atPaneKey = this.state.lastStatusByPaneKey.get(paneKey) as
+      | EnrichedAgentHookEventPayload
+      | undefined
+    if (
+      typeof providerSessionId !== 'string' ||
+      providerSessionId.length === 0 ||
+      atPaneKey?.providerSession?.id === providerSessionId
+    ) {
+      return atPaneKey
+    }
+    let newest: EnrichedAgentHookEventPayload | undefined
+    for (const entry of this.state.lastStatusByPaneKey.values()) {
+      const candidate = entry as EnrichedAgentHookEventPayload
+      if (
+        candidate.providerSession?.id === providerSessionId &&
+        (!newest || candidate.receivedAt > newest.receivedAt)
+      ) {
+        newest = candidate
+      }
+    }
+    return newest ?? atPaneKey
+  }
+
   inferInterrupt(request: AgentInterruptInferenceRequest): boolean {
     if (!isValidPaneKey(request.paneKey)) {
       return false
@@ -851,9 +889,7 @@ export class AgentHookServer {
     if (!isAgentInterruptInputIntent(request.intent)) {
       return false
     }
-    const existing = this.state.lastStatusByPaneKey.get(request.paneKey) as
-      | EnrichedAgentHookEventPayload
-      | undefined
+    const existing = this.findInferenceTarget(request.paneKey, request.providerSessionId)
     if (!existing) {
       return false
     }
@@ -946,9 +982,7 @@ export class AgentHookServer {
     if (!isValidPaneKey(request.paneKey)) {
       return false
     }
-    const existing = this.state.lastStatusByPaneKey.get(request.paneKey) as
-      | EnrichedAgentHookEventPayload
-      | undefined
+    const existing = this.findInferenceTarget(request.paneKey, request.providerSessionId)
     if (!existing) {
       return false
     }

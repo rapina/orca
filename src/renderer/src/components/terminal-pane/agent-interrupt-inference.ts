@@ -36,6 +36,7 @@ type CapturedInterruptBaseline = {
   agentType: AgentStatusEntry['agentType']
   intent: AgentInterruptInputIntent
   inputCount?: number
+  providerSessionId?: string
 }
 
 function requiresDoubleEscapeForAgent(
@@ -161,7 +162,8 @@ export function createAgentInterruptInference({
       stateStartedAt: entry.stateStartedAt,
       prompt: entry.prompt,
       agentType,
-      intent
+      intent,
+      ...(entry.providerSession?.id ? { providerSessionId: entry.providerSession.id } : {})
     }
   }
 
@@ -199,7 +201,8 @@ export function createAgentInterruptInference({
       baselinePrompt: baseline.prompt,
       baselineAgentType: baseline.agentType,
       intent: baseline.intent,
-      ...(baseline.inputCount !== undefined ? { inputCount: baseline.inputCount } : {})
+      ...(baseline.inputCount !== undefined ? { inputCount: baseline.inputCount } : {}),
+      ...(baseline.providerSessionId ? { providerSessionId: baseline.providerSessionId } : {})
     })
     return result ?? true
   }

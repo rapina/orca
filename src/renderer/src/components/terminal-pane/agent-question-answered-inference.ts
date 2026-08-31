@@ -42,7 +42,10 @@ function inferQuestionAnsweredFromEntry(
     baselineUpdatedAt: entry.updatedAt,
     baselineStateStartedAt: entry.stateStartedAt,
     baselinePrompt: entry.prompt,
-    baselineAgentType: entry.agentType
+    baselineAgentType: entry.agentType,
+    // Why: a background job's row is cached under a key of its own, so the pane
+    // the person typed into finds nothing without the session to look it up by.
+    ...(entry.providerSession?.id ? { providerSessionId: entry.providerSession.id } : {})
   })
   return true
 }

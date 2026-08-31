@@ -5,6 +5,9 @@ import type { AgentType } from './agent-status-types'
  *  cached status so a racing real hook always wins over the inference. */
 export type AgentQuestionAnsweredInferenceRequest = {
   paneKey: string
+  /** The session the row belongs to. A background job's row is cached under a key
+   *  of its own, so the pane the person typed into names nothing on its own. */
+  providerSessionId?: string
   baselineUpdatedAt: number
   baselineStateStartedAt: number
   baselinePrompt: string

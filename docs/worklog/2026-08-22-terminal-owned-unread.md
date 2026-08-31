@@ -482,3 +482,12 @@ git push origin custom
   워크스페이스만 연다. 덤으로 알림·알림 id가 언리드와 **같은 해석 키**(`completionPaneKey`)를 쓴다:
   전에는 언리드·해제(ack, `ui.ts`의 `buildAgentNotificationId`)는 이동 해석 키, OS 알림만 원본 키라
   세션이 옮겨간 뒤엔 알림이 안 지워지기도 했다.
+- **ESC로 질문을 닫으면 물음표가 안 사라졌다**(실측 8/31). ESC 자체는 처리 경로에 있다 —
+  `canInferInterrupt`가 claude·AskUserQuestion 대기 중의 plain-escape를 허용하고, 서버의 `inferInterrupt`도
+  그 경우를 `inferQuestionAnswered`로 넘긴다. 막힌 곳은 **조회**였다: 두 추론 모두
+  `lastStatusByPaneKey.get(request.paneKey)`로 찾는데, 잡의 행은 서버에서 `<탭>:<세션>` 키로 들고 있고
+  렌더러는 **사람이 키를 친 터미널의 페인 키**로 요청한다 → 항상 빈손. 잡 세션에서는 답변 추론(Enter)도
+  같은 이유로 무음 실패였다. 이제 요청에 `providerSessionId`를 실어(`agent-interrupt-intent.ts`,
+  `agent-question-answered-intent.ts`) 서버가 **세션으로 행을 찾는다**(`findInferenceTarget`: 페인 키가
+  맞는 행이면 그대로, 아니면 그 세션의 가장 최근 행; 세션이 없으면 예전 동작). 나머지 로직은 이미 찾은
+  행의 `paneKey`로 돌기 때문에 손댈 데가 없다.
