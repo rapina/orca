@@ -492,6 +492,28 @@ function isToolProgressWorkingAfterInterrupt(next: AgentHookEventPayload): boole
   return next.hookEventName !== undefined && TOOL_PROGRESS_HOOK_EVENTS.has(next.hookEventName)
 }
 
+/**
+ * Whether this event proves the turn an interrupt was meant to stop is still running.
+ *
+ * Why only a tool being started, and only later: a stopped turn still reports the
+ * tool it had already been running - a `sleep 90` finishes long after the Ctrl+C
+ * that ended the turn around it - so a completion proves nothing however late it
+ * comes. Starting a new tool is something no stopped turn does. Why not at once:
+ * a tool dispatched a moment before the interrupt landed can announce itself just
+ * after it, so the same grace window as the other late hooks applies first.
+ *
+ * Why this matters: without it an interrupt that the agent never actually took -
+ * an inference from a keystroke it ignored - left the row finished for as long as
+ * the agent kept working (measured: frozen at the interrupt while its transcript
+ * grew for another 45 minutes).
+ */
+function provesTurnOutlivedInterrupt(next: AgentHookEventPayload, interruptedAt: number): boolean {
+  return (
+    next.hookEventName === 'PreToolUse' &&
+    Date.now() - interruptedAt > INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS
+  )
+}
+
 function paneCacheKeyTabId(key: string): string | null {
   const paneKey = key.split('\0', 1)[0] ?? key
   return parsePaneKey(paneKey)?.tabId ?? parseLegacyNumericPaneKey(paneKey)?.tabId ?? null
@@ -1364,9 +1386,10 @@ export class AgentHookServer {
       previous.payload.agentType === effectivePayload.payload.agentType &&
       previous.payload.prompt === effectivePayload.payload.prompt &&
       (effectivePayload.isReplay === true ||
-        isToolProgressWorkingAfterInterrupt(effectivePayload) ||
-        (effectivePayload.hasExplicitPrompt !== true &&
-          Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS))
+        (!provesTurnOutlivedInterrupt(effectivePayload, previous.receivedAt) &&
+          (isToolProgressWorkingAfterInterrupt(effectivePayload) ||
+            (effectivePayload.hasExplicitPrompt !== true &&
+              Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS))))
     ) {
       if (effectivePayload.payload.agentType === 'codex') {
         markCodexLeadTurnInterrupted(this.state, effectivePayload.paneKey)
