@@ -52,6 +52,7 @@ export function TerminalListRow({
   entry,
   context,
   ptyId,
+  isCurrent = false,
   canMove,
   canDetach = false,
   pendingMove,
@@ -63,6 +64,8 @@ export function TerminalListRow({
   context?: TerminalContext
   /** The terminal's pty; tells a link under the row whether its terminal is local or remote. */
   ptyId?: string
+  /** The terminal the person is in right now. */
+  isCurrent?: boolean
   canMove: boolean
   /** The agent shown here was bound to this terminal by hand. */
   canDetach?: boolean
@@ -107,12 +110,18 @@ export function TerminalListRow({
           data-testid={isMoveTarget ? 'terminal-list-move-target' : 'terminal-list-row'}
           data-terminal-status={entry.status}
           data-pane-key={entry.paneKey ?? ''}
+          // Why the attribute and not the class alone: the styleguide keeps the
+          // persistent "you are here" row apart from a hover or a cmdk highlight.
+          data-current={isCurrent ? 'true' : undefined}
+          aria-current={isCurrent ? 'true' : undefined}
           className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
             isMoveSource
               ? 'text-muted-foreground opacity-50'
               : isMoveTarget
                 ? 'text-foreground hover:bg-amber-500/15'
-                : 'text-foreground hover:bg-accent/50'
+                : // Why the move states win: while a move is being aimed, what the row
+                  // offers matters more than where the person happens to be standing.
+                  `text-foreground hover:bg-accent/50 ${isCurrent ? 'bg-accent font-medium' : ''}`
           }`}
           disabled={isMoveSource}
           title={

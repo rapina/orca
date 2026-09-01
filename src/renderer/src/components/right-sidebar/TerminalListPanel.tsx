@@ -15,6 +15,7 @@ import {
 } from '@/store/slices/agent-pane-authority'
 import type { AgentSessionTurn } from '../../../../shared/agent-transcript-evidence'
 import { uninformativeTerminalTitles } from '../../../../shared/terminal-context'
+import { useFocusedTerminalPaneKey } from '../sidebar/focused-agent-row-highlight'
 import { EMPTY_TABS } from '../sidebar/WorktreeCardHelpers'
 import { type PendingMove, TerminalListRow } from './TerminalListRow'
 import { useTerminalContexts } from './terminal-row-context'
@@ -49,6 +50,10 @@ export default function TerminalListPanel(): React.JSX.Element {
   const { unifiedTabs, groups } = useAppStore(
     useShallow((s) => selectTerminalListTabSources(s, activeWorktreeId))
   )
+  // Why in the panel and not in the entries: where the person is standing changes on
+  // every click, and folding it into the built rows would rebuild the whole list for
+  // a mark that moves between two of them.
+  const currentPaneKey = useFocusedTerminalPaneKey(activeWorktreeId)
 
   // Why: row numbers point back at the tab strip, so the tabs have to be counted in
   // the order the strip draws them rather than the order the content store holds.
@@ -192,6 +197,7 @@ export default function TerminalListPanel(): React.JSX.Element {
             {...(entry.leafId && layoutsByTabId[entry.tabId]?.ptyIdsByLeafId?.[entry.leafId]
               ? { ptyId: layoutsByTabId[entry.tabId]?.ptyIdsByLeafId?.[entry.leafId] }
               : {})}
+            isCurrent={Boolean(entry.paneKey) && entry.paneKey === currentPaneKey}
             canMove={Boolean(
               entry.paneKey && agentStatusByPaneKey[entry.paneKey]?.providerSession?.id
             )}
