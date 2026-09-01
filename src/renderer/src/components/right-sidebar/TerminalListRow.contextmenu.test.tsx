@@ -54,7 +54,9 @@ function entry(): TerminalListEntry {
   }
 }
 
-function renderRow(extra: { canDetach?: boolean; onDetach?: () => void } = {}): void {
+function renderRow(
+  extra: { canDetach?: boolean; onDetach?: () => void; isCurrent?: boolean } = {}
+): void {
   render(
     <TerminalListRow
       entry={entry()}
@@ -66,6 +68,30 @@ function renderRow(extra: { canDetach?: boolean; onDetach?: () => void } = {}): 
     />
   )
 }
+
+// Why an attribute and not a colour assertion: the styleguide keeps the persistent
+// "you are here" row apart from a hover or a keyboard highlight, and that mark is
+// what other surfaces (and any later styling) can key off.
+describe('TerminalListRow and the terminal you are in', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it('marks the current terminal and leaves the others unmarked', () => {
+    renderRow({ isCurrent: true })
+    const current = screen.getByTestId('terminal-list-row')
+    expect(current.dataset.current).toBe('true')
+    expect(current.getAttribute('aria-current')).toBe('true')
+    expect(current.className).toContain('bg-accent')
+
+    cleanup()
+    renderRow()
+    const other = screen.getByTestId('terminal-list-row')
+    expect(other.dataset.current).toBeUndefined()
+    expect(other.getAttribute('aria-current')).toBeNull()
+  })
+})
 
 describe('TerminalListRow right-click', () => {
   afterEach(() => {
