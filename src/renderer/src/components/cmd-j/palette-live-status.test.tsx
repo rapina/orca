@@ -364,7 +364,9 @@ describe('palette live status', () => {
     expect(testContainer.innerHTML).not.toContain('lucide-circle-check')
   })
 
-  it('prefers unread over a permission prompt on the same row', async () => {
+  // Why: a turn waiting on the user goes nowhere until they answer, so the ask
+  // outranks the bell — the same ladder the tab strip and the terminal list keep.
+  it('prefers a permission prompt over unread on the same row', async () => {
     setAgentState('blocked')
     useAppStore.setState({
       unreadTerminalTabs: { 'term-a': true }
@@ -385,7 +387,7 @@ describe('palette live status', () => {
         </PaletteLiveStatusProvider>
       )
     })
-    expect(dotLabels()).toEqual(['Unread agent completion'])
+    expect(dotLabels()).toEqual(['Needs permission'])
   })
 
   it('cuts the pip out of the dialog surface, and out of accent when selected', async () => {

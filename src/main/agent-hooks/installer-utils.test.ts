@@ -768,6 +768,15 @@ describe('buildWindowsAgentHookCurlPostCommand', () => {
     expect(command).toContain('-H "X-Orca-Agent-Hook-Token: %ORCA_AGENT_HOOK_TOKEN%"')
     expect(command).toContain('--data-urlencode "paneKey=%ORCA_PANE_KEY%"')
     expect(command).toContain('--data-urlencode "worktreeId=%ORCA_WORKTREE_ID%"')
+    expect(command).not.toContain('processHost=')
+    // Why: an agent that runs under a background-job host must be able to say so,
+    // and the field goes ahead of the payload so stdin is still read last.
+    const withHost = buildWindowsAgentHookCurlPostCommand('claude', {
+      extraFormFields: ['processHost=%ORCA_HOOK_PROCESS_HOST%']
+    })
+    expect(withHost).toContain(
+      '--data-urlencode "processHost=%ORCA_HOOK_PROCESS_HOST%" --data-urlencode "payload@-"'
+    )
     // Why: `payload@-` makes curl read raw bytes from stdin and urlencode them,
     // so UTF-8 prompts survive without a code-page conversion.
     expect(command).toContain('--data-urlencode "payload@-"')

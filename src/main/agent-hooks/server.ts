@@ -56,6 +56,7 @@ import {
 } from '../../shared/claude-statusline-rate-limits'
 import {
   AGENT_STATUS_STALE_AFTER_MS,
+  type AgentProcessHost,
   type AgentStatusClearIpcPayload,
   type AgentStatusIpcPayload,
   type AgentType,
@@ -75,14 +76,21 @@ import {
   isAskUserQuestionTool,
   type AgentQuestionAnsweredInferenceRequest
 } from '../../shared/agent-question-answered-intent'
-import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
+import {
+  isStablePaneId,
+  makePaneKey,
+  parseLegacyNumericPaneKey,
+  parsePaneKey
+} from '../../shared/stable-pane-id'
 import type { LegacyPaneKeyAliasEntry } from '../../shared/persisted-state-types'
 import {
   getAgentResumeArgv,
   normalizeAgentProviderSession,
   type AgentProviderSessionMetadata
 } from '../../shared/agent-session-resume'
+import { agentStatusRoutingFields } from '../../shared/agent-status-routing-fields'
 import { isCommandCodeNewTurnWhileWorking } from '../../shared/command-code-turn-boundary'
+import { noteStaleClaudeHookScript } from './stale-hook-script-refresh'
 
 export type { AgentHookSource }
 
@@ -333,6 +341,16 @@ function sanitizeHydratedEntry(
     providerSession,
     providerSessionOnly: providerSessionOnly ? true : undefined,
     retainedForLiveness: retainedForLiveness ? true : undefined,
+    // Why kept: a replayed background job must not land on its host's pane just
+    // because the app restarted between two of its hooks.
+    processHost:
+      record.processHost === 'terminal' || record.processHost === 'background-job'
+        ? record.processHost
+        : undefined,
+    cwd:
+      typeof record.cwd === 'string' && record.cwd.length > 0 && record.cwd.length <= 1024
+        ? record.cwd
+        : undefined,
     payload,
     receivedAt,
     stateStartedAt
@@ -396,6 +414,24 @@ function authorityCommitmentsMatch(
   )
 }
 
+function readStableSessionId(value: unknown): string | null {
+  const id = typeof value === 'string' ? value.trim() : ''
+  return isStablePaneId(id) ? id : null
+}
+
+/** The Claude `session_id` of a hook body, whether the payload arrived as JSON text or parsed. */
+function readHookBodySessionId(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    // Why a regex: the listener parses the whole payload later; this only needs one field early.
+    const match = /"session_id"\s*:\s*"([0-9a-fA-F-]{36})"/.exec(payload)
+    return match ? readStableSessionId(match[1]) : null
+  }
+  if (payload && typeof payload === 'object') {
+    return readStableSessionId((payload as Record<string, unknown>).session_id)
+  }
+  return null
+}
+
 function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentStatusIpcPayload {
   return {
     paneKey: entry.paneKey,
@@ -409,6 +445,7 @@ function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentSta
     ...(entry.providerSessionOnly ? { providerSessionOnly: true } : {}),
     ...(entry.promptInteractionKey ? { promptInteractionKey: entry.promptInteractionKey } : {}),
     ...(entry.restoredUnconfirmed ? { restoredUnconfirmed: true } : {}),
+    ...agentStatusRoutingFields(entry),
     ...entry.payload
   }
 }
@@ -455,6 +492,28 @@ function isToolProgressWorkingAfterInterrupt(next: AgentHookEventPayload): boole
   return next.hookEventName !== undefined && TOOL_PROGRESS_HOOK_EVENTS.has(next.hookEventName)
 }
 
+/**
+ * Whether this event proves the turn an interrupt was meant to stop is still running.
+ *
+ * Why only a tool being started, and only later: a stopped turn still reports the
+ * tool it had already been running - a `sleep 90` finishes long after the Ctrl+C
+ * that ended the turn around it - so a completion proves nothing however late it
+ * comes. Starting a new tool is something no stopped turn does. Why not at once:
+ * a tool dispatched a moment before the interrupt landed can announce itself just
+ * after it, so the same grace window as the other late hooks applies first.
+ *
+ * Why this matters: without it an interrupt that the agent never actually took -
+ * an inference from a keystroke it ignored - left the row finished for as long as
+ * the agent kept working (measured: frozen at the interrupt while its transcript
+ * grew for another 45 minutes).
+ */
+function provesTurnOutlivedInterrupt(next: AgentHookEventPayload, interruptedAt: number): boolean {
+  return (
+    next.hookEventName === 'PreToolUse' &&
+    Date.now() - interruptedAt > INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS
+  )
+}
+
 function paneCacheKeyTabId(key: string): string | null {
   const paneKey = key.split('\0', 1)[0] ?? key
   return parsePaneKey(paneKey)?.tabId ?? parseLegacyNumericPaneKey(paneKey)?.tabId ?? null
@@ -486,11 +545,43 @@ function shouldKeepClaudePermissionVisible(
   if (isClaudePermissionResumingApprovedTool(previous, next)) {
     return false
   }
+  if (isClaudePermissionWaiterMovingOn(previous, next)) {
+    return false
+  }
   // Why: only real permission requests stay sticky; newer Claude reports AskUserQuestion as a PermissionRequest, so tool name (not event) decides.
   if (isAskUserQuestionTool(previous.payload.toolName)) {
     return false
   }
   return true
+}
+
+// Why: batch siblings of a permission-gated tool launch within the same instant; answering the prompt takes a person longer.
+const CLAUDE_PERMISSION_SIBLING_LAUNCH_WINDOW_MS = 3_000
+
+/**
+ * The agent that asked for permission demonstrably moved past the prompt: it started a
+ * different tool later than any batch sibling could, or (a subagent) stopped. Both approval
+ * and denial end here — denial never yields a PostToolUse, and a background job's answer
+ * never reaches Orca as a keystroke, so the approved-tool match alone left the pane waiting
+ * until the turn ended. Another agent moving on proves nothing: a background child keeps
+ * waiting while its lead works.
+ */
+function isClaudePermissionWaiterMovingOn(
+  previous: EnrichedAgentHookEventPayload,
+  next: AgentHookEventPayload
+): boolean {
+  const previousAgentId = previous.toolAgentId?.trim() || undefined
+  const nextAgentId = next.toolAgentId?.trim() || undefined
+  if (previousAgentId !== nextAgentId) {
+    return false
+  }
+  if (next.hookEventName === 'SubagentStop') {
+    return previousAgentId !== undefined
+  }
+  if (next.hookEventName !== 'PreToolUse' || !next.toolUseId?.trim()) {
+    return false
+  }
+  return Date.now() - previous.receivedAt >= CLAUDE_PERMISSION_SIBLING_LAUNCH_WINDOW_MS
 }
 
 function isClaudePermissionResumingApprovedTool(
@@ -774,6 +865,44 @@ export class AgentHookServer {
     return Object.freeze({ paneKey, source: 'current_hook' })
   }
 
+  /**
+   * The cached row an inference is about.
+   *
+   * Why not the pane key alone: a background job's row is kept here under a key of
+   * its own (`<tab>:<session>`), while the person pressing Escape is in the
+   * terminal the job was bound to - so the pane key they send names no row at all,
+   * and every inference for a job did nothing at all (measured: Escape left the
+   * question mark up for the rest of the turn). The session is what both sides
+   * agree on. A pane key that does name the right row still wins, and a request
+   * without a session keeps the old behaviour.
+   */
+  private findInferenceTarget(
+    paneKey: string,
+    providerSessionId: string | undefined
+  ): EnrichedAgentHookEventPayload | undefined {
+    const atPaneKey = this.state.lastStatusByPaneKey.get(paneKey) as
+      | EnrichedAgentHookEventPayload
+      | undefined
+    if (
+      typeof providerSessionId !== 'string' ||
+      providerSessionId.length === 0 ||
+      atPaneKey?.providerSession?.id === providerSessionId
+    ) {
+      return atPaneKey
+    }
+    let newest: EnrichedAgentHookEventPayload | undefined
+    for (const entry of this.state.lastStatusByPaneKey.values()) {
+      const candidate = entry as EnrichedAgentHookEventPayload
+      if (
+        candidate.providerSession?.id === providerSessionId &&
+        (!newest || candidate.receivedAt > newest.receivedAt)
+      ) {
+        newest = candidate
+      }
+    }
+    return newest ?? atPaneKey
+  }
+
   inferInterrupt(request: AgentInterruptInferenceRequest): boolean {
     if (!isValidPaneKey(request.paneKey)) {
       return false
@@ -781,9 +910,7 @@ export class AgentHookServer {
     if (!isAgentInterruptInputIntent(request.intent)) {
       return false
     }
-    const existing = this.state.lastStatusByPaneKey.get(request.paneKey) as
-      | EnrichedAgentHookEventPayload
-      | undefined
+    const existing = this.findInferenceTarget(request.paneKey, request.providerSessionId)
     if (!existing) {
       return false
     }
@@ -876,9 +1003,7 @@ export class AgentHookServer {
     if (!isValidPaneKey(request.paneKey)) {
       return false
     }
-    const existing = this.state.lastStatusByPaneKey.get(request.paneKey) as
-      | EnrichedAgentHookEventPayload
-      | undefined
+    const existing = this.findInferenceTarget(request.paneKey, request.providerSessionId)
     if (!existing) {
       return false
     }
@@ -996,8 +1121,13 @@ export class AgentHookServer {
 
   private getAgentStatusDisposition(
     paneKey: string,
-    event?: { hookEventName?: string; isReplay?: boolean }
+    event?: { hookEventName?: string; isReplay?: boolean; processHost?: AgentProcessHost }
   ): 'accept' | 'restart' | 'suppress' {
+    // Why: a background job is not in the tab its key names - closing that tab
+    // ends nothing of the job's, and the renderer gives it a row elsewhere.
+    if (event?.processHost === 'background-job') {
+      return 'accept'
+    }
     const ownerPaneKey = this.resolvePaneKeyAlias(paneKey)
     const paneRetired =
       this.closedAgentStatusPaneKeys.has(paneKey) ||
@@ -1256,9 +1386,10 @@ export class AgentHookServer {
       previous.payload.agentType === effectivePayload.payload.agentType &&
       previous.payload.prompt === effectivePayload.payload.prompt &&
       (effectivePayload.isReplay === true ||
-        isToolProgressWorkingAfterInterrupt(effectivePayload) ||
-        (effectivePayload.hasExplicitPrompt !== true &&
-          Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS))
+        (!provesTurnOutlivedInterrupt(effectivePayload, previous.receivedAt) &&
+          (isToolProgressWorkingAfterInterrupt(effectivePayload) ||
+            (effectivePayload.hasExplicitPrompt !== true &&
+              Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS))))
     ) {
       if (effectivePayload.payload.agentType === 'codex') {
         markCodexLeadTurnInterrupted(this.state, effectivePayload.paneKey)
@@ -1732,6 +1863,35 @@ export class AgentHookServer {
     return changed
   }
 
+  /**
+   * Give a background job's hooks a pane key of their own: the reported tab with
+   * the session id in the leaf's place.
+   *
+   * Why here, before normalization: every per-pane state this server and the
+   * listener keep - the lead turn state, tool caches, the subagent roster, the
+   * last-status cache - is keyed by pane key, and a background-job host stamps
+   * one pane key on every job it runs. Left as is, one job's Stop was read
+   * against another job's running turn and never became `done` (measured: a
+   * finished job stayed "working" on the terminal it was bound to). The renderer
+   * builds the same key for an unbound job, so the two sides agree.
+   */
+  private normalizeBackgroundJobPaneKey(source: AgentHookSource, body: unknown): unknown {
+    if (source !== 'claude' || typeof body !== 'object' || body === null) {
+      return body
+    }
+    const record = body as Record<string, unknown>
+    if (record.processHost !== 'background-job') {
+      return body
+    }
+    const paneKey = typeof record.paneKey === 'string' ? record.paneKey.trim() : ''
+    const tabId = parsePaneKey(paneKey)?.tabId
+    const sessionId = readHookBodySessionId(record.payload)
+    if (!tabId || !sessionId) {
+      return body
+    }
+    return { ...record, paneKey: makePaneKey(tabId, sessionId) }
+  }
+
   private normalizeHookBodyPaneKeyAlias(body: unknown): unknown {
     if (typeof body !== 'object' || body === null) {
       return body
@@ -1891,6 +2051,8 @@ export class AgentHookServer {
       /** Payload fields the relay dropped to fit an oversized frame; validated below. */
       shedFields?: unknown
       claudeRunningNonAgentTask?: unknown
+      processHost?: unknown
+      cwd?: unknown
       payload: unknown
     },
     connectionId: string
@@ -1908,7 +2070,7 @@ export class AgentHookServer {
     }
     // Why: trim paneKey to match the HTTP path, else remote-vs-local events for one pane diverge.
     const physicalPaneKey = envelope.paneKey.trim()
-    const paneKey = this.resolvePaneKeyAlias(physicalPaneKey)
+    let paneKey = this.resolvePaneKeyAlias(physicalPaneKey)
     const parsedPaneKey = parsePaneKey(paneKey)
     if (paneKey.length === 0) {
       track('agent_hook_unattributed', { reason: 'empty_pane_key' })
@@ -1919,6 +2081,14 @@ export class AgentHookServer {
     }
     if (!parsedPaneKey) {
       return
+    }
+    // Why: same per-job key as the HTTP path (see normalizeBackgroundJobPaneKey).
+    const remoteJobSessionId =
+      envelope.processHost === 'background-job'
+        ? readStableSessionId((envelope.providerSession as { id?: unknown } | undefined)?.id)
+        : null
+    if (remoteJobSessionId) {
+      paneKey = makePaneKey(parsedPaneKey.tabId, remoteJobSessionId)
     }
     if (envelope.tabId !== undefined && typeof envelope.tabId !== 'string') {
       return
@@ -1953,7 +2123,8 @@ export class AgentHookServer {
         : undefined
     const statusDisposition = this.getAgentStatusDisposition(paneKey, {
       hookEventName,
-      isReplay: envelope.isReplay === true
+      isReplay: envelope.isReplay === true,
+      processHost: remoteJobSessionId ? 'background-job' : undefined
     })
     if (statusDisposition === 'suppress') {
       return
@@ -2069,6 +2240,15 @@ export class AgentHookServer {
         typeof envelope.claudeRunningNonAgentTask === 'boolean'
           ? envelope.claudeRunningNonAgentTask
           : undefined,
+      // Why re-checked: the relay is a trust boundary; an unknown host value must not reach routing.
+      processHost:
+        envelope.processHost === 'terminal' || envelope.processHost === 'background-job'
+          ? envelope.processHost
+          : undefined,
+      cwd:
+        typeof envelope.cwd === 'string' && envelope.cwd.length > 0 && envelope.cwd.length <= 1024
+          ? envelope.cwd
+          : undefined,
       payload: normalizedPayload
     }
     this.recordCurrentAuthorityObservation(event)
@@ -2152,12 +2332,21 @@ export class AgentHookServer {
         }
 
         trackEmptyPaneKeyHook(body)
-        const aliasedBody = this.normalizeHookBodyPaneKeyAlias(body)
+        const aliasedBody = this.normalizeBackgroundJobPaneKey(
+          source,
+          this.normalizeHookBodyPaneKeyAlias(body)
+        )
         const normalized = this.normalizeLocalHookPayload(source, aliasedBody)
+        if (source === 'claude' && normalized.event && !normalized.event.processHost) {
+          // Why: a Claude hook that does not say who runs it came from a script older
+          // than this build writes - the start-up replacement did not land.
+          noteStaleClaudeHookScript()
+        }
         const statusDisposition = normalized.event
           ? this.getAgentStatusDisposition(normalized.event.paneKey, {
               hookEventName: normalized.event.hookEventName,
-              isReplay: normalized.event.isReplay
+              isReplay: normalized.event.isReplay,
+              processHost: normalized.event.processHost
             })
           : 'suppress'
         if (normalized.event && statusDisposition !== 'suppress') {

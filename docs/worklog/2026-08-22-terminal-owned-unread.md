@@ -300,3 +300,222 @@ git push origin custom
 - **세션 결속을 손댈 때**: 저장 위치는 `agent-hooks/session-pane-bindings.json`이고 워크스페이스
   세션이 아니다. 읽는 자리가 IPC 구독을 전부 등록하는 효과 맨 앞이라 **거기서 던지면 그 아래
   구독이 전부 죽는다** — 목이 프로미스가 아닌 값을 줄 수 있으니 감싸 둘 것.
+
+## 2026-08-25 — 잡은 자기 행을 갖는다 (오연결 재조사)
+
+하루 5번 넘게 다시 연결해야 했던 이유를 실측으로 다시 잡았다. 살아 있는 claude 프로세스 25개의
+환경변수를 직접 읽었다(`psutil`).
+
+- **데몬이 거느린 세션은 `--resume`으로 이어받은 것까지 전부 `CLAUDE_JOB_DIR`를 갖고**, 페인 키는
+  데몬을 띄운 터미널 것이다. 잡 9개가 워크스페이스 셋(cozy-sandbox·orca·워크트리)을 가리지 않고
+  페인 하나를 보고했다. 옛 데몬의 고아 호스트 3개는 또 다른 페인 하나를 보고했다.
+- **그 페인에는 대화형 `claude`가 따로 살아 있었다.** 페인당 상태는 하나라서 잡이 뭘 할 때마다 그
+  터미널의 진짜 세션 상태를 덮어썼고, 끝난 잡의 언리드는 거기 떨어졌다. 새 잡이 생길 때마다
+  하나씩 옮겨야 했던 것이 그 빈도다. "1번에서 하던 세션을 2번에서 이어가기"는 이것의 한 갈래일 뿐이다.
+- **저장된 결속이 되돌이표였다.** 결속은 세션 단위로 영구하므로, 잡을 터미널로 `--resume`해 오면
+  훅이 맞는 페인을 보고하는데도 결속이 옛 터미널로 끌고 갔다.
+- **연결 카드의 엉뚱한 문장**도 같은 뿌리다. 데몬 페인의 상태는 마지막으로 보고한 잡 것이라,
+  우클릭한 터미널과도 옮기려는 알림과도 무관한 세션의 프롬프트가 보였다.
+
+고친 것:
+
+- **훅이 `processHost`를 보낸다** (`terminal` / `background-job`, `CLAUDE_JOB_DIR` 유무로 판정;
+  `claude/hook-service.ts`의 Windows·POSIX 스크립트, 서버는 `normalizeHookPayload`와
+  `ingestRemote` 둘 다 검증). 훅 JSON의 `cwd`도 같이 싣는다. 옛 스크립트가 보낸 훅은 두 필드가
+  없고 **예전 동작 그대로**다(결속이 있으면 결속, 없으면 보고된 페인).
+- **잡 훅은 보고된 페인에 절대 올리지 않는다** (`lib/agent-status-owner-pane.ts`). 결속(손으로
+  만들었든 배운 것이든)이 있으면 거기로, 없으면 **`<탭>:<세션 UUID>`로 만든 자기 행**으로 간다.
+  세션 id가 UUID라 페인 키로 파싱되고, 언리드·목록·작업표시줄의 페인 키 지도를 그대로 탄다.
+  탭은 `cwd`가 속한 워크스페이스에서 고르되 보고된 탭이 그 워크스페이스에 있으면 그것을 쓴다.
+  그래서 잡은 **자기 워크스페이스 목록에 `N.-`로 뜨고**, 서로 덮어쓰지 않는다. 끝난 잡의 행은
+  언리드가 풀릴 때까지 남는다(`appendUnattachedAgents`).
+- **터미널에서 온 보고는 결속을 덮어쓴다.** 프로세스가 그 터미널에서 돌고 있다는 사실이 결속보다
+  세다. 배운 홈은 같은 파일에 영속된다(`bindSessionPane`). 그래서 대화형으로 하다가 백그라운드로
+  보낸 세션은 원래 터미널에 남고, 잡을 터미널로 `--resume`해 오면 그리로 따라온다. 옛 행은 그
+  세션 것일 때만 지운다(`dropRowsLeftBehind`).
+- **포크 부모를 자동 결속한다.** `claude --resume <잡> --fork-session`으로 잡을 터미널에 열면
+  포크 전사의 머리에 원본 세션 id가 붙은 기록이 그대로 복사돼 있다(실측 1,301줄). 터미널 보고가
+  처음 올 때 한 번 머리 64KB를 읽어(`agent-session-fork-parent-ipc.ts`, 판정은
+  `shared/agent-transcript-lineage.ts`, 5건 이상일 때만) 원본 잡을 그 터미널에 결속한다 — 사용자가
+  손으로 하던 바로 그 일이다.
+- **연결 카드는 프롬프트도 전사에서 읽는다** (`readSessionTurn` → `{ prompt, reply }`).
+- **결속 상한 1024** (렌더러·파일 모두). 터미널에서 도는 세션도 홈을 기록하므로 256이면 손으로
+  만든 결속이 먼저 밀려났다.
+
+물음표와 PR:
+
+- 목록 갈래가 넷이 됐다: `question` → `unread` → `working` → `idle`. `waiting`·`blocked` 둘 다
+  질문이다(권한 프롬프트도 묻고 멈춘 것). 탭 사다리(`resolveTerminalTabAttentionBadge`)도 질문을
+  언리드 위로 올려 세 표면이 같은 순서를 지킨다. 작업표시줄은 `questions`를 따로 받아
+  (`setUnreadDockBadgeCount(count, { questions })`) 물음표 오버레이(`--agent-question` 색, 흰 `?`)를
+  언리드 점보다 앞세우고 깜빡임도 건다.
+- PR은 **`gh pr create`/`glab mr create`/"Creating pull request for" 뒤 8K자 안의 링크만** 센다.
+  `gh pr view`, 리뷰 코멘트 JSON, 잡 목록에 찍힌 남의 PR, 같은 셸의 옛 세션이 전부 행에
+  올라왔었다. 증분 읽기의 겹침을 창 크기에 맞춰 키웠다(`SCAN_OVERLAP_BYTES`). GitLab MR은 `!N`.
+
+알아 둘 것:
+
+- 새 훅 스크립트는 **Orca를 켜면 다시 쓰이고, 도는 세션도 다음 훅부터** 새 필드를 보낸다(스크립트
+  파일을 매번 실행하므로). 설치판을 켜면 옛 형식으로 되돌아가는 건 전과 같다.
+- 잡의 자기 행은 **그 탭이 닫히면 다음 훅에서 다시 고른다**(`jobPaneKeyBySessionId`는 탭이 살아
+  있을 때만 재사용). 세션마다 행 하나라는 불변식은 지켜진다.
+- `agent-task-complete`의 "현재 페인" 검사는 리프가 있어야 통과하므로 잡 행은
+  `isBackgroundJobPaneKey`로 우회한다. 이 우회가 없으면 끝난 잡이 언리드를 못 남긴다.
+- 세션 라우팅된 상태에는 `terminalHandle`·`launchToken`을 싣지 않는다 — 둘 다 데몬을 띄운
+  터미널 것이라 잠든 에이전트 복원이나 보존 행 매칭을 엉뚱한 터미널에 건다.
+- **"새 빌드인데 훅 스크립트가 안 바뀐다"는 빌드가 새것이 아니었다.** `build-orca.bat`은 **그
+  체크아웃**을 빌드한다. 메인 체크아웃(`custom`)에서 돌리면 브랜치의 커밋은 안 들어가고, 옛 생성기가
+  옛 스크립트를 만들어 "내용이 같다"며 건너뛴다(`writeManagedScript`의 조기 반환). 헷갈린 이유:
+  `app.asar` 안에서 새 코드 문자열이 잡혔는데, 그것은 **저장소 안의 `.claude/worktrees/…` 워크트리
+  소스(테스트 파일까지)가 통째로 패키징된 것**이었다 — `out/main`·`out/renderer`에는 없었다. 판별은
+  `out/main/index.js`를 grep 하거나 `git log -1`을 보는 것이지 asar를 grep 하는 것이 아니다.
+  브랜치 빌드는 `git merge origin/<브랜치>` 뒤에 메인에서 빌드하거나, 워크트리 폴더에서
+  `build-orca.bat`을 돌려 그 폴더의 `dist`를 띄운다. 패키저가 `.claude/**`를 쓸어 담지 않게 제외했다.
+- **워크트리에서 그냥 빌드하면 node-gyp가 죽는다.** `.claude\worktrees\<이름>\` 만큼 경로가 길어져
+  node-pty의 gyp 산출물 경로(`…\node-pty\build\..\..\..\node-addon-api@7.1.1\…\*.vcxproj.filters`)가
+  **264자로 MAX_PATH(260)를 넘고**, 이 기계는 `LongPathsEnabled=0`이라 Python이 ENOENT를 낸다(메인
+  체크아웃에서는 같은 경로가 220자). `subst`로 짧은 드라이브를 매핑해도 **안 된다** — `@electron/rebuild`가
+  모듈 경로를 실제 경로로 되돌리고, `verify-skills-cli-runtime`은 정션 실제 경로를 "루트 밖"으로 본다.
+  통한 절차: 메인 체크아웃의 Electron용 네이티브 산출물(`node_modules/.pnpm/node-pty@…/node_modules/
+  node-pty/build`, `windows-native-registry@…/…/build` — 같은 lockfile·같은 Electron이면 그대로 쓸 수
+  있다)을 워크트리의 같은 자리에 복사한 뒤 `set ORCA_REUSE_PREPARED_NATIVE_RUNTIME=1`로
+  `build-orca.bat`을 돌린다. 이 변수가 있으면 패키징의 `beforeBuild`가 `--force` 없이 프로브만 해서
+  "already load in Electron; skipping rebuild"로 지나간다. 나온 `dist`는 워크트리 폴더의 것이다.
+- 스크립트 교체 자체도 단단하게 했다(관측된 원인은 아니지만 실재하는 구멍이다):
+  `refreshManagedScriptIfPresent`는 임시 파일을 **rename으로 교체**하는데, cmd.exe는 실행 중인 배치
+  파일을 삭제 공유 없이 열어 두므로 어떤 훅이 그 순간 돌고 있으면 EPERM으로 진다. rename을 50ms 간격
+  10회 재시도하고 그래도 지면 **제자리 쓰기**(cmd.exe는 쓰기 공유는 허용한다); 동기
+  경로(`writeManagedScript`)는 바로 제자리 쓰기. 그리고 **`processHost` 없는 클로드 훅이 들어오면
+  5분에 한 번 스크립트를 다시 쓴다**(`stale-hook-script-refresh.ts`) — 시작 시 교체가 어떤 이유로든
+  지면 다음 훅이 고친다.
+- 결속(`session-pane-bindings.json`)은 **스냅샷 재생 전에** 읽는다. 재생된 행은 나중 결속으로 안
+  옮겨진다.
+- **끝난 잡이 "작업중"으로 남던 진짜 이유는 메인에 있었다.** 리스너는 리드 턴 상태·도구 캐시·하위
+  에이전트 명단·마지막 상태 캐시를 전부 **페인 키별**로 든다. 잡들이 데몬 페인 키 하나를 같이 쓰면 잡
+  B의 `Stop`이 잡 A의 도는 턴/자식에 대고 해석돼 `done`이 안 나온다(실측: 12:17에 끝난 잡 `b5e2c19b`가
+  결속된 3.4에 계속 작업중, 메인 캐시의 그 페인 마지막 항목은 다른 잡의 working). 렌더러만 고쳐서는
+  안 되는 이유다. 이제 서버가 **잡 훅의 페인 키를 `<탭>:<세션 UUID>`로 바꿔**(`normalizeBackgroundJob
+  PaneKey`, 원격 인입도 동일) 페인당 상태 기계가 잡별로 분리된다 — 렌더러가 자기 행에 쓰는 키와 같다.
+  덤으로 `last-status.json`이 잡마다 남아 재시작 재생도 잡별로 된다. 잡 훅은 닫힌 탭 억제도 받지 않는다
+  (잡은 그 탭에 있지 않다).
+- 우클릭 메뉴에 **「알림에 자기 행 주기」**(결속 해제)를 넣었다. 잡을 터미널에 결속하면 그 터미널
+  자체 세션의 상태를 잡이 계속 덮어쓴다 — "작업중이 안 사라진다"의 한 갈래. 해제하면 그 페인의 행을
+  버리고 다음 훅부터 잡 자기 행으로 간다.
+- 행 아래 PR 칩은 **터미널 링크와 같은 라우팅**을 탄다(`terminal-row-link-open.ts` →
+  `openHttpLink`): 설정 `openLinksInApp`, Shift+Ctrl/⌘ 반전, 첫 클릭의 선택 프롬프트까지. 우클릭
+  메뉴가 두 목적지를 이름으로 준다. **행의 우클릭은 캡처 단계**라 칩의 메뉴보다 먼저 뛴다 — 칩에
+  `data-terminal-list-link`를 달고 행이 그걸 보면 물러난다(`terminal-list-link-marker.ts`). 이 마커를
+  칩 모듈에서 내보내면 행 테스트가 칩의 의존성(다이얼로그·런타임 스트림)을 통째로 끌어온다.
+- **답한 권한 요청이 잡에서 "?"로 남았다**(실측: 2.4에 결속된 잡, 13:53 `EnterWorktree`의
+  permission-root relocation 프롬프트 → 13:54 승인 → 턴이 끝난 14:16까지 물음표). 서버는
+  `PermissionRequest` 뒤의 `waiting`을 **고정**한다(`shouldKeepClaudePermissionVisible`) — 같은 배치의
+  형제 도구가 완료되며 보내는 working이 프롬프트를 지우지 않게. 푸는 길은 승인된 도구의 짝
+  이벤트(같은 tool_use_id)·새 프롬프트·터미널의 답변 키 입력 추론뿐이었다. 잡은 답을 밖에서 하니 키
+  입력이 없고, 짝 이벤트가 안 오면(거절은 PostToolUse를 내지 않는다) 턴 끝까지 고정된다. 이제
+  **요청한 에이전트가 프롬프트를 지나갔다는 증거**로도 푼다(`isClaudePermissionWaiterMovingOn`): 그
+  에이전트(리드, 또는 같은 `agent_id`의 자식)가 **다른 도구를 새로 시작**(PreToolUse)하면 — 권한 도구는
+  직렬로 돌므로 승인이든 거절이든 답이 났다는 뜻; 배치 형제는 같은 순간에 뜨니 요청 후 3초 안의 시작은
+  세지 않는다 — 또는 요청한 **자식이 SubagentStop** 하면. 다른 에이전트가 움직이는 건 증거가 아니다
+  (백그라운드 자식은 리드가 일해도 계속 기다린다). `server-permission-wait-release.test.ts`.
+- **새 세션이 `1.-  C Users PJH` 행으로 뜨는 이유.** 실측(Claude 2.1.246): 터미널에서 띄운 `claude`는
+  fleet 화면에서 잡을 만들거나 스페어(`spare`, 미리 띄워 둔 빈 세션)를 받아 **데몬이 호스팅하는 잡의
+  클라이언트**가 된다(`--bg-pty-host` 파이프). 잡 프로세스의 환경은 데몬 것이라 페인 키는 데몬을 띄운
+  페인이고 `CLAUDE_JOB_DIR`이 있어 잡으로 판정된다 → 자기 행. 잡↔클라이언트를 잇는 것은 디스크에 없다:
+  `~/.claude/daemon/attach-journal`은 fleet 화면을 연 클라이언트 PID·시각만 남기고, `roster.json`·잡의
+  `state.json`·양쪽 프로세스 환경 어디에도 상대를 가리키는 값이 없다. 있는 것은 **키 입력**이다 — 페인에
+  Enter가 들어간 직후 그 잡의 `UserPromptSubmit`이 온다. 답변 추론이 이미 믿는 증거와 같은 종류다.
+  렌더러가 페인별 마지막 Enter 시각을 들고(`pane-submit-keystrokes.ts`), 서버가 `UserPromptSubmit`에
+  `promptSubmitted`를 표시하면, 잡이 프롬프트를 보고할 때 창 안에 Enter가 있던 페인이 **정확히 하나**면
+  거기에 결속한다(`paneThatSubmittedThisPrompt`; 첫 배치는 12초 — Enter→스폰→부팅→훅, 재배치는 3초).
+  둘이면 자기 행에 둔다. 창 안에서 다른 세션이 상태를 갱신한 페인은 그 세션이 키를 가져간 것이라 뺀다.
+  결속된 홈이 같이 Enter를 냈으면 그대로 둔다. 앱/브리지에서 띄운 잡은 Enter가 없으니 자기 행 그대로.
+  제목 "C Users PJH"는 프롬프트 앞에 붙은 이미지 경로(`…\jobs\<id>\pasted-1.png`, Orca 붙여넣기의
+  `orca-paste-….png`)였다 — 리스너에서 걷어낸다(`prompt-pasted-image-paths.ts`). 스페어 잡의
+  `SessionStart→done`은 프롬프트가 없어 목록에 뜨지 않는다.
+- 스냅샷 요청을 결속 하이드레이션 뒤로 미룬 것이 동기 적용을 가정하는 hooks 테스트 10건을 깼다. 결속
+  API가 프로미스를 줄 때만 기다리고, 값이나 부재면 그 자리에서 손에 든 것으로 쳐 동기 경로를 되살렸다
+  (요청은 미루지 않고 **적용만** 결속 뒤로).
+- **재시작하자 `claude --resume <잡>`을 도는 탭이 잡마다 하나씩 열렸다**(대부분 전사 없는 스페어라
+  "No conversation found"). 종료 시 수면 세션 캡처(`captureAllSleepingAgentSessions('quit')` →
+  `sleepingRecordFromEntry`)가 `agentStatusByPaneKey`를 훑으며 **잡의 자기 행**(`<탭>:<세션 UUID>`)까지
+  되살릴 터미널로 기록했고, 복원이 그 리프를 못 찾아 탭을 새로 만든 것이다. 서버가 잡 키를 쓰기
+  시작한 뒤 캐시에 잡 행이 쌓여 이번 재시작에 한꺼번에 터졌다. 자기 행은 터미널이 아니다 — 뒤에 PTY가
+  없고 세션은 데몬에 산다. `isBackgroundJobRowKey`(리프 = 세션 id, `background-job-row-key.ts`)로
+  세 곳에서 막는다: 기록을 만들 때(모든 캡처 경로가 지나는 `sleepingRecordFromEntry`), 저장된 세션을
+  들일 때(`withoutBackgroundJobRowRecords` — 고치기 전에 저장된 기록이 다음 실행마다 탭을 만들지
+  않게), 복원할 때(`resumeSleepingAgentSessionsForWorktree`, 기록을 지운다).
+- **Enter 상관 결속이 기존 터미널을 재사용할 때 안 붙었다**(실측: 새 세션 셋을 전부 손으로 연결했고, 한
+  페인에 세션 셋이 차례로 결속돼 있었다). 후보 페인에서 "창 안에 다른 세션이 상태를 갱신한 페인"을 빼는
+  규칙이 원인 — 그 페인에 전에 결속된 잡은 사람이 새 세션으로 옮긴 뒤에도 데몬에서 계속 돌며 도구
+  이벤트를 보내니, 재사용한 터미널은 늘 "바쁜" 페인으로 보였다. 이제 뺄 조건은 **다른 세션의 프롬프트
+  보고가 그 페인으로 간 경우**뿐이다(`notePromptSubmitRoutedTo` / `anotherSessionSubmittedInto` — 그
+  Enter는 그 세션이 가져간 것). 그리고 새 세션이 페인을 차지하면 **거기 남아 있던 이전 세션들의 결속을
+  푼다**(`releaseTerminalToSession`): 그 터미널은 이제 다른 것을 보여 주므로, 이전 잡은 자기 행으로
+  돌아간다.
+- **그래도 안 붙는 경우가 남았다**(실측 8/28: 1.3에서 받은 스페어 `e8a8dc8b`, 같은 12초 안에 다른 페인의
+  세션이 `Stop`). 여러 세션을 굴리는 사람은 창 안에 다른 터미널에서도 Enter를 치는 게 보통이라 "후보가
+  정확히 하나"는 자주 실패한다. 이제 **입력된 문장 자체**를 본다: 렌더러가 페인별로 마지막 Enter가 보낸
+  줄을 들고(`noteTerminalInput` — 이스케이프 제거, Backspace 반영, 붙여넣기 줄바꿈 접기, IME의 빈
+  Enter는 직전 줄 유지), 잡의 프롬프트와 대조한다(`promptMatchesTypedText`: 이미지 경로 제거·공백
+  정규화 후 같거나, 8자 이상 포함이거나, 16자 이상 같은 서두). 문장이 맞는 페인이 하나면 다른 Enter가
+  있어도 확정; 문장 비교가 안 되면(짧은 프롬프트 등) 전처럼 Enter가 하나뿐일 때만. 판단은
+  `agent-prompt-terminal-claim.ts`로 뺐고, 매 판단을 한 줄씩 **`logs/agent-status-diag.log`**에
+  남긴다(`agentStatus:noteRoutingDiagnostic`; `claim <세션> at= home= win= enters=[페인@나이:text|enter|
+  taken|closed] -> 결과`) — 렌더러 안의 결정을 나중에 밖에서 볼 수 있는 유일한 길이다.
+- **`1.- 계속`**(실측 8/31, 종은 2.3에 제대로 뜨고 물음표만 자기 행으로): 세 가지가 겹쳤다. ① "계속"은
+  두 글자라 문장 대조 최소 길이(3자)에 걸려 비교를 건너뛰었다 — **같은 문장이면 길이는 안 따진다**로
+  바꿨다(포함·서두 판정만 8·16자 하한 유지). 같은 말을 두 터미널에 쳤으면 후보가 둘이 되어 자기 행에
+  남는데, 그게 옳다. ② "다른 세션이 이 터미널에 프롬프트를 냈다"는 제외 조건이 **창 시작 시각** 기준이라,
+  조금 전까지 그 터미널에서 일하던 세션 때문에 **그 뒤에 친 Enter까지** 남의 것으로 쳤다 — 기준을 **그
+  Enter 시각**으로 바꿨다(`anotherSessionTookSubmit`): 나중에 온 보고만 그 Enter를 가져갈 수 있다.
+  ③ 네이티브 챗 컴포저의 전송은 `xterm.onData`를 우회해 기록이 아예 없었다 — `NativeChatView`의
+  `onOptimisticSend`에서 `noteTerminalPromptSubmitted`로 남긴다(컴포저 파일은 이미 max-lines 한도 400에
+  정확히 붙어 있어 한 줄도 못 넣는다).
+- **알림을 누르면 닫아 둔 탭이 되살아나며 엉뚱한 페인이 잡혔다**(실측 8/31: 3.1 응답 알림 → 4.1 포커스 +
+  닫힌 4번 탭 복원). 탭을 닫아도 그 안의 터미널은 계속 돌기 때문에, 거기서 일하던 에이전트가 끝나면
+  파킹된 감시자가 **그 닫힌 페인의 키로** 알림을 쏜다. 게이트는 다 통과한다 —
+  `hasLivePtyForNotification`은 워크스페이스에 살아 있는 pty가 하나라도 있으면 참이고,
+  `isCurrentLivePaneKey`는 **탭이 열려 있는지 보지 않는다**(닫힌 탭의 `ptyIdsByTabId`·레이아웃은 그대로
+  남아 있다). 클릭은 `ui:focusTerminal{tabId,leafId}` → `setActiveTab`이라 탭이 되살아나고 리프를 못
+  찾으면 첫 페인으로 떨어진다. 이제 알림에 실을 페인을 `focusableNotificationPaneKey`로 거른다: 워크스페이스
+  탭 목록이 하이드레이션됐는데 그 탭이 없으면(=닫힘) 또는 잡의 자기 행이면 **페인을 싣지 않는다** — 클릭은
+  워크스페이스만 연다. 덤으로 알림·알림 id가 언리드와 **같은 해석 키**(`completionPaneKey`)를 쓴다:
+  전에는 언리드·해제(ack, `ui.ts`의 `buildAgentNotificationId`)는 이동 해석 키, OS 알림만 원본 키라
+  세션이 옮겨간 뒤엔 알림이 안 지워지기도 했다.
+- **ESC로 질문을 닫으면 물음표가 안 사라졌다**(실측 8/31). ESC 자체는 처리 경로에 있다 —
+  `canInferInterrupt`가 claude·AskUserQuestion 대기 중의 plain-escape를 허용하고, 서버의 `inferInterrupt`도
+  그 경우를 `inferQuestionAnswered`로 넘긴다. 막힌 곳은 **조회**였다: 두 추론 모두
+  `lastStatusByPaneKey.get(request.paneKey)`로 찾는데, 잡의 행은 서버에서 `<탭>:<세션>` 키로 들고 있고
+  렌더러는 **사람이 키를 친 터미널의 페인 키**로 요청한다 → 항상 빈손. 잡 세션에서는 답변 추론(Enter)도
+  같은 이유로 무음 실패였다. 이제 요청에 `providerSessionId`를 실어(`agent-interrupt-intent.ts`,
+  `agent-question-answered-intent.ts`) 서버가 **세션으로 행을 찾는다**(`findInferenceTarget`: 페인 키가
+  맞는 행이면 그대로, 아니면 그 세션의 가장 최근 행; 세션이 없으면 예전 동작). 나머지 로직은 이미 찾은
+  행의 `paneKey`로 돌기 때문에 손댈 데가 없다.
+- **결속이 계속 안 붙던 진짜 이유는 여기 있었다.** 상태를 렌더러로 보내는 길이 둘인데 —
+  훅 서버의 스냅샷(`toAgentStatusIpcPayload`)과 `main/index.ts`의 **실시간 푸시** — 실시간 쪽은
+  페이로드를 손으로 조립하면서 `processHost`·`cwd`·`promptSubmitted`를 **하나도 싣지 않았다**(파일 전체에
+  그 이름이 없었다). `resolveAgentStatusOwner`는 `processHost`가 없으면 레거시 경로로 빠지므로, 잡 자기
+  행·Enter/문장 대조 결속은 **재시작 직후 스냅샷 재생 때만** 돌고 평소엔 한 번도 안 돌았다 — 8/31에
+  `agent-status-diag.log`가 비어 있던 것이 그 증거다(판단 함수 자체가 안 불렸다). 잡의 행이 `1.-`로 보인
+  건 렌더러가 고른 게 아니라 **서버가 이미 키를 `<탭>:<세션>`으로 바꿔 보내기 때문**이고, 그래서 증상만
+  같고 결속은 영영 안 붙었다. 이제 세 필드를 `agentStatusRoutingFields()` 한 곳에 모아 스냅샷과 실시간
+  푸시가 같이 쓴다 — 다음 필드도 여기 추가하면 두 길이 다시 어긋나지 않는다.
+- **올린 PR이 목록에 자주 안 떴다.** PR 판정은 터미널 **녹화**(`terminal-history/<pty>/output.log`)에서
+  `gh pr create` 표식 뒤 8192자 안의 링크만 셌는데, 에이전트 TUI에서는 이게 성립하지 않는다. 실측(1.3의
+  녹화, PR #772): 링크는 **620번** 나오는데 `gh pr create`는 **0번**이다 — TUI가 대화 화면을 계속 다시
+  그려 결과 줄은 살아남고 명령 에코는 굴러 나간다(게다가 녹화는 원본 ANSI라 줄바꿈·이스케이프에 표식이
+  쪼개질 수도 있다). 표식을 버리면 예전의 "안 만든 PR이 뜬다"로 되돌아가므로, 대신 **전사**를 읽는다:
+  `extractPullRequestUrlsFromTranscript`가 생성 명령을 담은 `tool_use`의 id를 기억했다가 그 id의
+  `tool_result`(및 `toolUseResult`)에서만 링크를 뽑는다 — 만든 것과 본 것이 구조로 갈린다. 녹화 경로는
+  그대로 둔다(셸에서 직접 친 `gh pr create`는 거기에만 남는다). IPC는 전사도 증분 스캔해 두 결과를
+  합친다. 같은 전사로 검증: 생성 호출 1건, PR #772 정확히 하나.
+- **일하는 중인데 작업중 표시가 사라졌다**(실측 8/31 3.3): 그 터미널에 결속된 세션의 캐시 항목이
+  21:52에 `done` + `interrupted: true`(훅 이름 없음 = 추론이 찍은 값)로 얼어 있었는데, 같은 세션의 전사는
+  22:36까지 계속 자라고 있었다 — 에이전트가 받아들이지 않은 ESC/Ctrl+C를 추론이 중단으로 확정한 것이다.
+  더 나쁜 건 회복이 불가능했다는 점: 중단 뒤 `working` 억제 규칙의 한 갈래
+  (`isToolProgressWorkingAfterInterrupt`)에 **시간 제한이 없어** 같은 프롬프트의 도구 훅이 영영 무시됐고,
+  억제된 이벤트는 `receivedAt`도 안 올려 항목이 그 시각에 그대로 멈춘다. 그렇다고 창을 그냥 씌우면
+  기존 테스트가 지키는 정당한 경우(중단 전에 이미 돌던 `sleep 90`의 늦은 `PostToolUse`)가 깨진다. 구분은
+  **새 도구를 시작했는가**다: 멈춘 턴은 완료를 늦게 보고할 수는 있어도 **다음 도구를 시작하지는 않는다**.
+  그래서 유예(15초) 뒤의 `PreToolUse`만 생존 증거로 보고 행을 되살린다(`provesTurnOutlivedInterrupt`);
+  완료 보고는 아무리 늦어도 계속 억제한다. 추론이 틀려도 15초 뒤 다음 도구에서 스스로 회복된다.

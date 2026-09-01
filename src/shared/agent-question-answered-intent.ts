@@ -5,6 +5,9 @@ import type { AgentType } from './agent-status-types'
  *  cached status so a racing real hook always wins over the inference. */
 export type AgentQuestionAnsweredInferenceRequest = {
   paneKey: string
+  /** The session the row belongs to. A background job's row is cached under a key
+   *  of its own, so the pane the person typed into names nothing on its own. */
+  providerSessionId?: string
   baselineUpdatedAt: number
   baselineStateStartedAt: number
   baselinePrompt: string
@@ -29,6 +32,11 @@ const QUESTION_ANSWER_ENTER_INPUTS: ReadonlySet<string> = new Set([
   '\x1b[13;1u'
 ])
 const QUESTION_ANSWER_DIGIT_INPUTS: ReadonlySet<string> = new Set('123456789')
+
+/** A lone Enter as the terminal delivers it — never a paste, which arrives as a longer chunk. */
+export function isEnterSubmitInput(data: string): boolean {
+  return QUESTION_ANSWER_ENTER_INPUTS.has(data)
+}
 
 export function isPotentialQuestionAnsweredSubmitInput(data: string): boolean {
   return QUESTION_ANSWER_ENTER_INPUTS.has(data) || QUESTION_ANSWER_DIGIT_INPUTS.has(data)

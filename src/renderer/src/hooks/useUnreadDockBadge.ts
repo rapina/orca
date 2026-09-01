@@ -1,14 +1,14 @@
 import { useEffect, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { getUnreadBadgeCount } from '@/lib/unread-badge-count'
+import { getQuestionBadgeCount, getUnreadBadgeCount } from '@/lib/unread-badge-count'
 import { useAppStore } from '@/store'
 
-function setUnreadDockBadgeCountBestEffort(count: number): void {
+function setUnreadDockBadgeCountBestEffort(count: number, questions = 0): void {
   const setBadge = window.api?.app?.setUnreadDockBadgeCount
   if (!setBadge) {
     return
   }
-  void setBadge(count).catch(() => {
+  void setBadge(count, { questions }).catch(() => {
     // Dock sync is best-effort chrome; stale badge state should not affect app use.
   })
 }
@@ -31,10 +31,24 @@ export function useUnreadDockBadge(): typeof clearUnreadDockBadgeCount {
     [tabsByWorktree, unreadTerminalTabs, worktreesByRepo]
   )
 
+  const { agentStatusByPaneKey, agentStatusEpoch } = useAppStore(
+    useShallow((state) => ({
+      agentStatusByPaneKey: state.agentStatusByPaneKey,
+      agentStatusEpoch: state.agentStatusEpoch
+    }))
+  )
+  // Why the epoch: freshness is time-based, and the store bumps it at the stale
+  // boundary without replacing the map — the same invalidation the tab strip takes.
+  const questionCount = useMemo(
+    () => getQuestionBadgeCount(agentStatusByPaneKey, Date.now()),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [agentStatusByPaneKey, agentStatusEpoch]
+  )
+
   // oxlint-disable-next-line react-doctor/no-derived-state-effect -- Why: this syncs an external OS dock badge, not React render state.
   useEffect(() => {
-    setUnreadDockBadgeCountBestEffort(unreadCount)
-  }, [unreadCount])
+    setUnreadDockBadgeCountBestEffort(unreadCount, questionCount)
+  }, [unreadCount, questionCount])
 
   return clearUnreadDockBadgeCount
 }

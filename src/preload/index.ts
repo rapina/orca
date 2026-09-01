@@ -537,8 +537,8 @@ const api = {
       ipcRenderer.invoke('app:getKeyboardInputSourceId'),
     getMacCapturedDigitRowChords: (): Promise<MacCapturedDigitRowChord[]> =>
       ipcRenderer.invoke('app:getMacCapturedDigitRowChords'),
-    setUnreadDockBadgeCount: (count: number): Promise<void> =>
-      ipcRenderer.invoke('app:setUnreadDockBadgeCount', count),
+    setUnreadDockBadgeCount: (count: number, attention?: { questions: number }): Promise<void> =>
+      ipcRenderer.invoke('app:setUnreadDockBadgeCount', count, attention),
     getFloatingTerminalCwd: (args?: FloatingTerminalCwdRequest): Promise<string> =>
       ipcRenderer.invoke('app:getFloatingTerminalCwd', args),
     getFloatingMarkdownDirectory: (): Promise<string> =>
@@ -4880,13 +4880,25 @@ const api = {
     }): void => {
       ipcRenderer.send('agentStatus:transferPaneAuthority', args)
     },
-    readSessionTurn: (args: { transcriptPath: string }): Promise<string | null> =>
+    readSessionTurn: (args: {
+      transcriptPath: string
+    }): Promise<{ prompt: string | null; reply: string | null } | null> =>
       ipcRenderer.invoke('agentStatus:readSessionTurn', args),
+    readSessionForkParent: (args: {
+      transcriptPath: string
+      sessionId: string
+    }): Promise<string | null> => ipcRenderer.invoke('agentStatus:readSessionForkParent', args),
+    unbindSessionPane: (args: { sessionId: string }): void => {
+      ipcRenderer.send('agentStatus:unbindSessionPane', args)
+    },
     bindSessionPane: (args: { sessionId: string; paneKey: string }): void => {
       ipcRenderer.send('agentStatus:bindSessionPane', args)
     },
     listSessionPaneBindings: (): Promise<Record<string, string>> =>
       ipcRenderer.invoke('agentStatus:listSessionPaneBindings'),
+    noteRoutingDiagnostic: (line: string): void => {
+      ipcRenderer.send('agentStatus:noteRoutingDiagnostic', line)
+    },
     readTerminalContexts: (args: {
       terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
     }): Promise<

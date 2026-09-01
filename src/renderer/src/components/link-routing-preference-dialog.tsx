@@ -258,3 +258,9 @@ export function useLinkRoutingPreferenceDialog(): LinkRoutingPreferenceDialogCon
   }
   return requestPreference
 }
+
+/** Why a null-returning variant: a surface rendered outside the provider (a
+ *  sidebar panel under test) should skip the prompt, not crash. */
+export function useOptionalLinkRoutingPreferenceDialog(): LinkRoutingPreferenceDialogContextValue | null {
+  return useContext(LinkRoutingPreferenceDialogContext)
+}

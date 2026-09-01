@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto'
 import type { AgentHookSource } from '../../shared/agent-hook-relay'
 import { grantDirAcl, isPermissionError } from '../win32-utils'
 import { POSIX_HOOK_STDIN_DRAIN_COMMAND } from './hook-stdin-contract'
+import { replaceScriptSync } from './managed-hook-script-refresh'
 import { resolveHooksJsonWritePath } from './hook-config-write-path'
 import { writeRollingFileBackup } from '../rolling-file-backup'
 
@@ -179,7 +180,10 @@ export function buildWindowsAgentHookPostCommand(
 }
 
 // Why: PowerShell per-post costs ~300ms startup and mangles UTF-8 via code-page translation; curl.exe (Win10 1803+) avoids both.
-export function buildWindowsAgentHookCurlPostCommand(source: AgentHookSource): string {
+export function buildWindowsAgentHookCurlPostCommand(
+  source: AgentHookSource,
+  options: { extraFormFields?: readonly string[] } = {}
+): string {
   return [
     '"%SystemRoot%\\System32\\curl.exe" -sS -X POST',
     `"http://127.0.0.1:%ORCA_AGENT_HOOK_PORT%/hook/${source}"`,
@@ -192,6 +196,7 @@ export function buildWindowsAgentHookCurlPostCommand(source: AgentHookSource): s
     '--data-urlencode "worktreeId=%ORCA_WORKTREE_ID%"',
     '--data-urlencode "env=%ORCA_AGENT_HOOK_ENV%"',
     '--data-urlencode "version=%ORCA_AGENT_HOOK_VERSION%"',
+    ...(options.extraFormFields ?? []).map((field) => `--data-urlencode "${field}"`),
     '--data-urlencode "payload@-"',
     '>nul 2>&1'
   ].join(' ')
@@ -283,7 +288,7 @@ export function writeManagedScript(scriptPath: string, content: string): void {
     if (process.platform !== 'win32') {
       chmodSync(tmpPath, 0o755)
     }
-    renameSync(tmpPath, scriptPath)
+    replaceScriptSync(tmpPath, scriptPath, content)
   } finally {
     if (existsSync(tmpPath)) {
       try {

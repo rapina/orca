@@ -172,12 +172,14 @@ export type TerminalTabAttentionBadge = 'working' | 'permission' | 'unread' | 'd
 
 /**
  * Single priority ladder shared by the tab strip and Cmd+J recent rows:
- * unread bell → in-turn (working / permission) → freshly done check.
+ * question → unread bell → working → freshly done check.
  *
- * Why unread first: a tab holds several terminals, and a terminal that finished
- * without being seen is the one asking for the user. Another terminal still
- * running is work in progress and must not hide that ask — otherwise a busy tab
- * looks identical whether or not something is waiting in it.
+ * Why a question first: a turn waiting on the user goes nowhere until they
+ * answer, so it outranks even a finished terminal's bell — the same order the
+ * terminal list and the taskbar keep. Why unread before working: a tab holds
+ * several terminals, and one that finished without being seen is asking for the
+ * user; another still running is work in progress and must not hide that ask —
+ * otherwise a busy tab looks identical whether or not something is waiting in it.
  */
 export function resolveTerminalTabAttentionBadge({
   status,
@@ -186,14 +188,14 @@ export function resolveTerminalTabAttentionBadge({
   status: WorktreeStatus | null | undefined
   hasUnread: boolean
 }): TerminalTabAttentionBadge | null {
+  if (status === 'permission') {
+    return 'permission'
+  }
   if (hasUnread) {
     return 'unread'
   }
   if (status === 'working') {
     return 'working'
-  }
-  if (status === 'permission') {
-    return 'permission'
   }
   if (status === 'done') {
     return 'done'

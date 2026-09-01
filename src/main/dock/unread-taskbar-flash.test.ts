@@ -25,7 +25,8 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../tray/tray-attention-icon', () => ({
-  createUnreadTaskbarOverlayIcon: () => ({})
+  createUnreadTaskbarOverlayIcon: () => ({ kind: 'unread' }),
+  createQuestionTaskbarOverlayIcon: () => ({ kind: 'question' })
 }))
 
 function fire(event: string): void {
@@ -89,6 +90,26 @@ describe('Windows taskbar unread flash', () => {
     fire('blur')
 
     expect(windowMock.flashFrame).toHaveBeenLastCalledWith(false)
+  })
+
+  // Why: a turn waiting on the user goes nowhere until they answer, so it takes
+  // the one overlay corner ahead of an unread, and flashes on its own.
+  it('shows the question badge over the unread dot and flashes for it', async () => {
+    const { setUnreadDockBadgeCount } = await import('./unread-badge')
+
+    setUnreadDockBadgeCount(2, 1)
+    expect(windowMock.setOverlayIcon).toHaveBeenLastCalledWith(
+      { kind: 'question' },
+      '1 waiting for an answer'
+    )
+
+    setUnreadDockBadgeCount(2, 0)
+    expect(windowMock.setOverlayIcon).toHaveBeenLastCalledWith({ kind: 'unread' }, '2 unread')
+
+    setUnreadDockBadgeCount(0, 1)
+    windowMock.isFocused.mockReturnValue(false)
+    fire('blur')
+    expect(windowMock.flashFrame).toHaveBeenLastCalledWith(true)
   })
 
   // Why: the listeners outlive every count write, so registering per write would

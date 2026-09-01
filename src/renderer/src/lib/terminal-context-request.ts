@@ -21,10 +21,14 @@ export function buildTerminalContextRequest(input: {
 }): TerminalContextRequest {
   const terminals: TerminalContextRequest['terminals'] = []
   for (const entry of input.entries) {
-    if (!entry.paneKey || !entry.leafId) {
+    if (!entry.paneKey) {
       continue
     }
-    const ptyId = input.layoutsByTabId[entry.tabId]?.ptyIdsByLeafId?.[entry.leafId]
+    // Why a row without a leaf is still asked: a background job's own row has no
+    // terminal recording, but its transcript still says which folder it works in.
+    const ptyId = entry.leafId
+      ? input.layoutsByTabId[entry.tabId]?.ptyIdsByLeafId?.[entry.leafId]
+      : undefined
     const transcriptPath =
       input.agentStatusByPaneKey?.[entry.paneKey]?.providerSession?.transcriptPath?.trim()
     if (!ptyId && !transcriptPath) {

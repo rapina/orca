@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AgentQuestionIcon } from '@/components/AgentQuestionIcon'
 import { AgentWorkingSpinner } from '@/components/AgentWorkingSpinner'
 import { translate } from '@/i18n/i18n'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
@@ -8,6 +9,7 @@ import type { TerminalContext } from '../../../../shared/terminal-context'
 import { FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
 import { closeAllContextMenus, TerminalListRowMenu } from './TerminalListRowMenu'
 import { TerminalRowContext } from './terminal-row-context'
+import { TERMINAL_LIST_LINK_ATTR } from './terminal-list-link-marker'
 
 /** What a pending move is taking, so a row can tell whether it is the source. */
 export type PendingMove = {
@@ -20,6 +22,10 @@ export type PendingMove = {
 }
 
 function TerminalStatusIcon({ status }: { status: TerminalListStatus }): React.JSX.Element {
+  if (status === 'question') {
+    // Why the same glyph as the tab strip: one question mark means one thing everywhere.
+    return <AgentQuestionIcon className="size-3 shrink-0" />
+  }
   if (status === 'unread') {
     return <FilledBellIcon className="size-3 shrink-0 text-amber-500" />
   }
@@ -30,6 +36,9 @@ function TerminalStatusIcon({ status }: { status: TerminalListStatus }): React.J
 }
 
 export function statusLabel(status: TerminalListStatus): string {
+  if (status === 'question') {
+    return translate('components.terminalList.status.question', 'Waiting for your answer')
+  }
   if (status === 'unread') {
     return translate('components.terminalList.status.unread', 'Unread')
   }
@@ -42,16 +51,24 @@ export function statusLabel(status: TerminalListStatus): string {
 export function TerminalListRow({
   entry,
   context,
+  ptyId,
   canMove,
+  canDetach = false,
   pendingMove,
   onBeginMove,
+  onDetach,
   onCompleteMove
 }: {
   entry: TerminalListEntry
   context?: TerminalContext
+  /** The terminal's pty; tells a link under the row whether its terminal is local or remote. */
+  ptyId?: string
   canMove: boolean
+  /** The agent shown here was bound to this terminal by hand. */
+  canDetach?: boolean
   pendingMove: PendingMove | null
   onBeginMove: (entry: TerminalListEntry) => void
+  onDetach?: (entry: TerminalListEntry) => void
   onCompleteMove: (toPaneKey: string) => void
 }): React.JSX.Element {
   const clearTerminalPaneUnread = useAppStore((s) => s.clearTerminalPaneUnread)
@@ -70,6 +87,11 @@ export function TerminalListRow({
       // to act on, so it stops here and only puts the menu up.
       onContextMenuCapture={(event) => {
         if (!entry.paneKey) {
+          return
+        }
+        // Why: a link under the row has a menu of its own — where to open it — and
+        // the row's menu must not take that click from it.
+        if ((event.target as HTMLElement | null)?.closest?.(`[${TERMINAL_LIST_LINK_ATTR}]`)) {
           return
         }
         event.preventDefault()
@@ -127,14 +149,18 @@ export function TerminalListRow({
           <span className="truncate">{entry.name}</span>
         </button>
       </div>
-      {context ? <TerminalRowContext context={context} /> : null}
+      {context ? <TerminalRowContext context={context} {...(ptyId ? { ptyId } : {})} /> : null}
       <TerminalListRowMenu
         open={menuOpen}
         menuPoint={menuPoint}
         canMove={canMove && !pendingMove}
+        canDetach={canDetach && !pendingMove}
         onOpenChange={setMenuOpen}
         onBeginMove={() => {
           onBeginMove(entry)
+        }}
+        onDetach={() => {
+          onDetach?.(entry)
         }}
         onMarkUnread={() => {
           if (entry.paneKey) {

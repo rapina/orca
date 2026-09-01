@@ -5,9 +5,9 @@ import {
 } from '@/lib/terminal-context-request'
 import {
   MAX_TERMINAL_PULL_REQUESTS,
-  pullRequestLabel,
   type TerminalContext
 } from '../../../../shared/terminal-context'
+import { TerminalRowPullRequestChip } from './TerminalRowPullRequestChip'
 
 /** Why re-read on a timer: a pull request appears in a recording minutes after the
  *  row was drawn, and nothing tells the renderer that it did. */
@@ -69,7 +69,14 @@ export function useTerminalContexts(
  * said nothing about which. Why the pull requests: they are what a finished
  * terminal leaves behind, and this list is where the user comes looking for them.
  */
-export function TerminalRowContext({ context }: { context: TerminalContext }): React.JSX.Element {
+export function TerminalRowContext({
+  context,
+  ptyId
+}: {
+  context: TerminalContext
+  /** The terminal's pty, so a link knows whose terminal it came from (local or remote). */
+  ptyId?: string
+}): React.JSX.Element {
   const pullRequests = context.pullRequestUrls.slice(-MAX_TERMINAL_PULL_REQUESTS)
   return (
     <div className="flex flex-col gap-0.5 pb-1 pl-[2.1rem] pr-3">
@@ -85,18 +92,7 @@ export function TerminalRowContext({ context }: { context: TerminalContext }): R
       {pullRequests.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {pullRequests.map((url) => (
-            <button
-              key={url}
-              type="button"
-              data-testid="terminal-list-pull-request"
-              className="rounded border border-border/60 px-1 text-[10px] tabular-nums text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              title={url}
-              onClick={() => {
-                void window.api?.shell?.openUrl?.(url)
-              }}
-            >
-              {pullRequestLabel(url)}
-            </button>
+            <TerminalRowPullRequestChip key={url} url={url} {...(ptyId ? { ptyId } : {})} />
           ))}
         </div>
       ) : null}

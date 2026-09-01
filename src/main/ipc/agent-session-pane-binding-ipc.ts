@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app, ipcMain } from 'electron'
 import { isValidPaneKey } from '../agent-hooks/server'
+import './agent-routing-diagnostic-ipc'
 
 /**
  * Terminals an agent session was bound to by hand, kept across restarts.
@@ -15,7 +16,9 @@ import { isValidPaneKey } from '../agent-hooks/server'
  * Why next to the hook state and not in the workspace session: this is what a
  * hook's pane key means, not what the window looks like.
  */
-const MAX_BINDINGS = 256
+// Why this many: sessions seen running in a terminal record their home here too, so
+// the hand-made corrections for background jobs must not be the ones evicted first.
+const MAX_BINDINGS = 1024
 
 let cache: Record<string, string> | null = null
 let writing: Promise<void> = Promise.resolve()
@@ -84,6 +87,22 @@ function registerAgentSessionPaneBindingIpcHandlers(): void {
       for (const oldest of sessionIds.slice(0, Math.max(0, sessionIds.length - MAX_BINDINGS))) {
         delete bindings[oldest]
       }
+      persist(bindings)
+    })
+  })
+
+  ipcMain.removeAllListeners('agentStatus:unbindSessionPane')
+  ipcMain.on('agentStatus:unbindSessionPane', (_event, value: unknown) => {
+    const args = value as Record<string, unknown> | null
+    const sessionId = typeof args?.sessionId === 'string' ? args.sessionId : ''
+    if (sessionId.length === 0) {
+      return
+    }
+    void load().then((bindings) => {
+      if (!(sessionId in bindings)) {
+        return
+      }
+      delete bindings[sessionId]
       persist(bindings)
     })
   })

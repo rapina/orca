@@ -81,15 +81,35 @@ export function composeTrayAttentionIcon(base: NativeImage): NativeImage {
   return nativeImage.createFromBitmap(bitmap, { width, height })
 }
 
-/**
- * A standalone amber badge for the Windows taskbar overlay icon.
- *
- * Why not `composeTrayAttentionIcon`: the taskbar overlay is not composited onto
- * the app glyph by us — Windows draws this image over the taskbar button's own
- * corner, so it must be the badge alone on a transparent canvas. 16×16 is the
- * size Windows expects for an overlay at 96 dpi.
- */
-export function createUnreadTaskbarOverlayIcon(size = 16): NativeImage {
+// Why: --agent-question is orange-500 (#f97316) in main.css — the color every
+// "the agent is asking you" glyph wears. The taskbar cannot read CSS tokens, so
+// the value is mirrored here.
+const QUESTION_RGB = { r: 0xf9, g: 0x73, b: 0x16 }
+
+// A question mark as a 16×16 mask, drawn to sit inside the badge disc.
+const QUESTION_GLYPH_ROWS = [
+  '................',
+  '................',
+  '................',
+  '.....XXXXX......',
+  '....XX...XX.....',
+  '....XX...XX.....',
+  '.........XX.....',
+  '........XX......',
+  '.......XX.......',
+  '.......XX.......',
+  '................',
+  '.......XX.......',
+  '.......XX.......',
+  '................',
+  '................',
+  '................'
+]
+
+type Rgb = { r: number; g: number; b: number }
+
+/** A filled disc with a white ring, the shape every taskbar badge shares. */
+function paintTaskbarBadgeDisc(size: number, fill: Rgb): Buffer {
   const bitmap = Buffer.alloc(size * size * 4)
   const center = (size - 1) / 2
   const outerRadius = size / 2 - 0.5
@@ -104,11 +124,50 @@ export function createUnreadTaskbarOverlayIcon(size = 16): NativeImage {
       }
       // Why: the white ring keeps the badge readable over both a light and a
       // dark taskbar, the same trick the tray dot uses.
-      const color = dist <= innerRadius ? DOT_RGB : RING_RGB
+      const color = dist <= innerRadius ? fill : RING_RGB
       const offset = (y * size + x) * 4
       bitmap[offset] = color.b
       bitmap[offset + 1] = color.g
       bitmap[offset + 2] = color.r
+      bitmap[offset + 3] = 0xff
+    }
+  }
+  return bitmap
+}
+
+/**
+ * A standalone amber badge for the Windows taskbar overlay icon.
+ *
+ * Why not `composeTrayAttentionIcon`: the taskbar overlay is not composited onto
+ * the app glyph by us — Windows draws this image over the taskbar button's own
+ * corner, so it must be the badge alone on a transparent canvas. 16×16 is the
+ * size Windows expects for an overlay at 96 dpi.
+ */
+export function createUnreadTaskbarOverlayIcon(size = 16): NativeImage {
+  return nativeImage.createFromBitmap(paintTaskbarBadgeDisc(size, DOT_RGB), {
+    width: size,
+    height: size
+  })
+}
+
+/**
+ * The question badge for the Windows taskbar overlay: the question color's disc
+ * with a white question mark, so it reads as a different ask than the unread dot
+ * at a glance.
+ */
+export function createQuestionTaskbarOverlayIcon(size = 16): NativeImage {
+  const bitmap = paintTaskbarBadgeDisc(size, QUESTION_RGB)
+  const glyphSize = QUESTION_GLYPH_ROWS.length
+  for (let y = 0; y < size; y++) {
+    const row = QUESTION_GLYPH_ROWS[Math.floor((y * glyphSize) / size)] ?? ''
+    for (let x = 0; x < size; x++) {
+      if (row[Math.floor((x * glyphSize) / size)] !== 'X') {
+        continue
+      }
+      const offset = (y * size + x) * 4
+      bitmap[offset] = RING_RGB.b
+      bitmap[offset + 1] = RING_RGB.g
+      bitmap[offset + 2] = RING_RGB.r
       bitmap[offset + 3] = 0xff
     }
   }

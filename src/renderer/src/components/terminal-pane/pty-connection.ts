@@ -202,6 +202,7 @@ import {
   isPlainEscapeKeyEvent
 } from './agent-interrupt-inference'
 import { createAgentQuestionAnsweredInference } from './agent-question-answered-inference'
+import { noteTerminalInput } from '@/lib/pane-submit-keystrokes'
 import {
   AGENT_INTERRUPT_SETTLE_MS,
   type AgentInterruptInputIntent
@@ -2015,6 +2016,9 @@ export function connectPanePty(
     // submit keystroke into a waiting AskUserQuestion pane becomes the
     // "question answered" signal no hook will ever deliver.
     questionAnsweredInference.observeSentTerminalInput(data)
+    // Why here too: the Enter that sends a prompt is what ties a background job's
+    // next prompt report to the terminal it was typed into.
+    noteTerminalInput(cacheKey, data)
   }
   let pendingTerminalInputWrite: Promise<boolean | null> | null = null
   let sequencedInterruptStatusBaseline: AgentStatusEntry | null | undefined

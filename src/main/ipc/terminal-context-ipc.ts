@@ -4,8 +4,10 @@ import { app, ipcMain } from 'electron'
 import { isValidPaneKey } from '../agent-hooks/server'
 import {
   extractPullRequestUrls,
+  extractPullRequestUrlsFromTranscript,
   MAX_TERMINAL_PULL_REQUESTS,
   parseTranscriptWorkingDirectory,
+  PULL_REQUEST_CREATE_WINDOW_CHARS,
   worktreeNameFromPath,
   type TerminalContext
 } from '../../shared/terminal-context'
@@ -13,9 +15,11 @@ import {
 /** Why capped: the first sweep of a long-lived terminal would otherwise read the
  *  whole recording, and a link older than this is not what the row is for. */
 const FIRST_SCAN_BYTES = 4 * 1024 * 1024
-/** Why an overlap: a link written across two reads would be split in half and
- *  matched by neither. Longer than any pull request URL. */
-const SCAN_OVERLAP_BYTES = 256
+/** Why an overlap: a link only counts within a window after the create command
+ *  that printed it, so a read has to start far enough back to see that command.
+ *  Three bytes per character covers the widest UTF-8 the window can hold, and
+ *  the tail covers a link written across two reads. */
+const SCAN_OVERLAP_BYTES = PULL_REQUEST_CREATE_WINDOW_CHARS * 3 + 256
 /** Why enough: the working directory sits on every record, so the newest few suffice. */
 const TRANSCRIPT_TAIL_BYTES = 64 * 1024
 const MAX_TERMINALS = 200
@@ -35,6 +39,11 @@ type ScanState = { scannedTo: number; urls: string[] }
  * links found earlier are remembered rather than re-found.
  */
 const scansByPtyId = new Map<string, ScanState>()
+/** The same, for transcripts: an agent's own record of the requests it opened. */
+const transcriptScansByPath = new Map<string, ScanState>()
+/** Why enough overlap: a create tool call and the result carrying its link are
+ *  neighbouring records, even when the call holds a whole pull request body. */
+const TRANSCRIPT_SCAN_OVERLAP_BYTES = 256 * 1024
 
 function historyLogPath(ptyId: string): string {
   return join(app.getPath('userData'), 'terminal-history', encodeURIComponent(ptyId), 'output.log')
@@ -92,6 +101,38 @@ async function scanPullRequestUrls(ptyId: string): Promise<string[]> {
   return next.urls
 }
 
+/** Links the agent's own transcript records it opened, carried across calls. */
+async function scanTranscriptPullRequestUrls(transcriptPath: string): Promise<string[]> {
+  if (!transcriptPath.toLowerCase().endsWith('.jsonl')) {
+    return []
+  }
+  let size: number
+  try {
+    ;({ size } = await stat(transcriptPath))
+  } catch {
+    return transcriptScansByPath.get(transcriptPath)?.urls ?? []
+  }
+  const previous = transcriptScansByPath.get(transcriptPath)
+  const state = previous && previous.scannedTo <= size ? previous : { scannedTo: 0, urls: [] }
+  const from =
+    state.scannedTo > 0
+      ? Math.max(0, state.scannedTo - TRANSCRIPT_SCAN_OVERLAP_BYTES)
+      : Math.max(0, size - FIRST_SCAN_BYTES)
+  const text = await readRange(transcriptPath, from, size - from)
+  if (text === null) {
+    return state.urls
+  }
+  const urls = [...state.urls]
+  for (const url of extractPullRequestUrlsFromTranscript(text)) {
+    if (!urls.includes(url)) {
+      urls.push(url)
+    }
+  }
+  const next: ScanState = { scannedTo: size, urls: urls.slice(-MAX_TERMINAL_PULL_REQUESTS) }
+  transcriptScansByPath.set(transcriptPath, next)
+  return next.urls
+}
+
 async function readWorkingDirectory(
   transcriptPath: string
 ): Promise<{ worktreeName: string; branch?: string } | null> {
@@ -127,7 +168,15 @@ export async function readTerminalContexts(
 ): Promise<TerminalContext[]> {
   const contexts: TerminalContext[] = []
   for (const terminal of request.terminals) {
-    const pullRequestUrls = terminal.ptyId ? await scanPullRequestUrls(terminal.ptyId) : []
+    const fromRecording = terminal.ptyId ? await scanPullRequestUrls(terminal.ptyId) : []
+    // Why both: a person typing `gh pr create` at a shell leaves it only in the
+    // recording, and an agent's TUI leaves it only in its transcript.
+    const fromTranscript = terminal.transcriptPath
+      ? await scanTranscriptPullRequestUrls(terminal.transcriptPath)
+      : []
+    const pullRequestUrls = [...fromRecording, ...fromTranscript]
+      .filter((url, index, all) => all.indexOf(url) === index)
+      .slice(-MAX_TERMINAL_PULL_REQUESTS)
     const directory = terminal.transcriptPath
       ? await readWorkingDirectory(terminal.transcriptPath)
       : null

@@ -15582,6 +15582,7 @@
     "terminalList": {
       "title": "Terminals",
       "status": {
+        "question": "Waiting for your answer",
         "unread": "Unread",
         "working": "Working",
         "idle": "Idle"
@@ -15597,7 +15598,13 @@
       },
       "menu": {
         "markUnread": "Mark as unread",
-        "moveAgent": "Connect these notifications to another terminal…"
+        "moveAgent": "Connect these notifications to another terminal…",
+        "detachAgent": "Give these notifications a row of their own"
+      },
+      "link": {
+        "openInOrca": "Open in Orca",
+        "openInBrowser": "Open in browser",
+        "copy": "Copy link"
       }
     },
     "terminalUnread": {
