@@ -117,10 +117,11 @@
 목록의 `3.3` 같은 번호는 페인 키에서 계산한 값이라 **번호와 페인 키를 대조해도 이 어긋남은 안
 잡힌다**(같은 정보의 두 표현이다).
 
-### 자동 판정은 만들었다가 걷어냈다 — 다시 만들지 말 것
+### 자동 판정 — 화면 기록에서 찾는 길은 막혔다 (뚫린 길은 키 입력이다)
 
 터미널 기록(`%APPDATA%/orca/terminal-history/<ptyId>/output.log`)에서 그 세션의 문장을 찾아
-자동으로 짚는 판을 만들었다가 지웠다. 걸린 벽이 셋이고, 전부 원리적인 것이다.
+자동으로 짚는 판을 만들었다가 지웠다. 걸린 벽이 셋이고, 전부 원리적인 것이다. **화면 기록으로
+다시 시도하지 말 것** — 뚫린 길은 아래 「키 입력이 답이다」이고, 근거가 다르다.
 
 1. **세션 id로는 못 찾는다.** 에이전트는 자기 id를 화면에 안 찍는다. 실측: 살아 있는 터미널 5개
    중 3개의 기록에 UUID가 한 번도 없었다. 화면에 세션을 실어 나르는 이스케이프도 없다(기록에
@@ -135,7 +136,32 @@
 
 2와 3을 다 막으면(근거는 세션 전사에서만, 서로 다른 턴 2개가 같은 터미널에 걸려야 인정) 오탐은
 0이 됐지만 **대부분의 경우에 답을 안 하게 된다.** 살아 있는 상태 9건에 돌려 3건 확인·6건 보류였다.
-어느 터미널이 자기 것인지는 **사람이 이미 알고 있으므로**, 추측을 걷어내고 손으로 옮기게 했다.
+어느 터미널이 자기 것인지는 사람이 이미 알고 있으므로, 그때는 추측을 걷어내고 손으로 옮기게 했다.
+
+### 키 입력이 답이다 (2026-08-31)
+
+위 세 벽은 전부 **화면에 뭐가 찍혔나**를 근거로 삼아서 생긴 것이다. 근거를 바꾸면 벽이 없다:
+**사람이 그 터미널에 친 것**이다. 잡의 클라이언트가 어느 페인인지는 디스크 어디에도 없지만
+(`daemon/attach-journal`·`roster.json`·잡 `state.json`·양쪽 프로세스 환경 전부 확인함), 그 페인에
+Enter가 들어간 직후 그 잡의 `UserPromptSubmit`이 온다. 답변 추론이 이미 믿는 것과 같은 종류의 증거다.
+
+- 페인별로 **마지막 Enter가 보낸 줄**을 든다(`pane-submit-keystrokes.ts` — 이스케이프 제거, Backspace
+  반영, 붙여넣기 줄바꿈 접기, IME의 빈 Enter는 직전 줄 유지). Orca 컴포저 전송은 xterm을 우회하므로
+  `NativeChatView`의 `onOptimisticSend`에서도 남긴다.
+- 잡이 프롬프트를 보고하면 **문장을 대조**한다(`promptMatchesTypedText`: 이미지 경로 제거·공백
+  정규화 후 같거나, 8자 이상 포함, 16자 이상 같은 서두). 같은 문장을 친 페인이 하나면 다른 터미널에
+  Enter가 있어도 확정한다. 문장 비교가 안 되면 그때만 "Enter가 하나뿐일 때" 규칙으로 물러난다.
+- **차지하면 인계한다**: 새 세션이 페인을 가져가면 거기 결속돼 있던 이전 세션은 자기 행으로 돌려보낸다
+  (`releaseTerminalToSession`). 이전 잡은 데몬에서 계속 돌며 훅을 쏘므로, 안 풀면 그 터미널을 영영
+  못 뺏는다.
+- 판단은 `agent-prompt-terminal-claim.ts` 하나에 모았고, **매 판단을 한 줄씩
+  `logs/agent-status-diag.log`에 남긴다**(`claim <세션> at= home= win= enters=[페인@나이:text|enter|
+  taken|closed] -> 결과`). 렌더러 안의 결정을 밖에서 볼 수 있는 유일한 길이라, 오배정 신고가 오면
+  **코드를 읽기 전에 이 파일부터 본다.** 로그가 비어 있으면 판정 자체가 안 불린 것이다(그렇게 아래
+  「라우팅 필드」 함정을 잡았다).
+
+한계: 같은 12초 안에 두 터미널에 **같은 문장**을 쳤으면 자기 행에 남긴다(코인 던지기보다 낫다).
+앱·브리지에서 띄워 Orca 페인에 Enter가 없는 잡도 자기 행이 맞는 자리다.
 
 ### 알림을 다른 터미널에 연결하기
 
@@ -212,6 +238,14 @@
 - `run-orca.bat` / `run-orca-isolated.bat` — 후자는 `.orca-profile\`을 따로 써서 설치판 옆에서 돈다.
 - 자동 업데이트는 막아 뒀다(`src/main/updater.ts`). 테스트에서만 되살린다
   (`config/scripts/updater-feed-enabled-in-tests.ts`).
+- **워크트리에서 빌드할 때**: `build-orca.bat`은 자기가 있는 체크아웃을 빌드한다. 워크트리 경로가
+  길어 네이티브 재빌드가 MAX_PATH(260)로 죽으므로, 메인 체크아웃의 `node-pty`·
+  `windows-native-registry` `build` 폴더를 워크트리의 같은 자리에 복사하고
+  `ORCA_REUSE_PREPARED_NATIVE_RUNTIME=1`로 돌린다(그러면 `beforeBuild`가 프로브만 한다). `subst`는
+  안 통한다(realpath 검사에 걸린다). 자세한 절차는 아래 2026-08-25 절.
+- **켜 둔 채로 그 폴더에 다시 패키징하면 EBUSY로 죽는다.** 시험용 빌드는
+  `--config.directories.output=dist-next-N`처럼 출력 폴더를 따로 준다. 검증한 빌드를 `custom`에 머지한
+  뒤에는 메인 체크아웃에서 `git pull` → `build-orca.bat`으로 평소 자리(`dist\win-unpacked`)에 다시 낸다.
 
 ## 새 릴리스 따라가기
 
@@ -246,11 +280,18 @@ git push origin custom
 | 횟수 | 파일 |
 |---|---|
 | 43 | `i18n/locales/en.json` |
+| 24 | `main/index.ts` |
 | 14 | `hooks/useIpcEvents.ts` |
+| 14 | `main/agent-hooks/server.ts` |
 | 13 | `terminal-pane/pty-connection.ts` |
 | 13 | `preload/index.ts` |
 | 9 | `web/web-preload-api.ts` |
 | 5 | `store/slices/agent-status.ts` |
+| 4 | `store/slices/terminals.ts` |
+
+`main/index.ts`는 2026-08-31에 처음 건드렸다(실시간 상태 푸시에 라우팅 필드 세 개). 표에서 두 번째로
+잦은 파일이니 **거기 넣은 것은 `agentStatusRoutingFields()` 호출 한 줄로 유지한다** — 판정을 그 안에
+쓰기 시작하면 릴리스마다 아프다.
 
 - **`en.json`은 손으로 병합하지 않는다.** upstream 것을 통째로 취하고(`git checkout --theirs`)
   `pnpm run sync:localization-catalog`을 돌리면 이 포크의 키가 다시 붙는다. **단, 값이 다른 키는
@@ -282,8 +323,30 @@ git push origin custom
 
 - **언리드 종류를 늘릴 때**: 지도를 하나 더 만들지 말고 `terminal-unread.ts`의 판정에 넣는다.
   지도를 늘리면 해제 경로 다섯 곳(pointerdown·keydown·목록 클릭·휠·turn 재개)을 전부 고쳐야 한다.
-- **상태 아이콘을 늘릴 때**: 목록의 세 갈래(`unread`/`working`/`idle`)는 정렬 키다. 갈래를 늘리면
-  `STATUS_RANK`와 탭 사다리(`terminal-tab-activity-status.ts`)를 같이 고친다.
+- **상태 아이콘을 늘릴 때**: 목록의 네 갈래(`question`/`unread`/`working`/`idle`)는 정렬 키다. 갈래를
+  늘리면 `STATUS_RANK`와 탭 사다리(`terminal-tab-activity-status.ts`)를 같이 고친다. 작업표시줄까지
+  가려면 `unread-badge-count.ts`·`useUnreadDockBadge.ts`·`dock/unread-badge.ts`·
+  `tray/tray-attention-icon.ts`가 한 벌이다(물음표가 그 벌을 다 탄다).
+- **렌더러가 라우팅에 쓰는 필드를 더할 때**: 상태가 렌더러로 가는 길은 **둘**이다 — 훅 서버의
+  스냅샷(`toAgentStatusIpcPayload`)과 `main/index.ts`의 실시간 푸시. 실시간 쪽은 페이로드를 손으로
+  조립하므로 **거기 안 넣으면 재시작 직후 재생 때만 동작한다.** `processHost`·`cwd`·`promptSubmitted`가
+  꼭 그랬고, 결속이 안 붙는다는 신고를 세 번 받고서야 잡았다(진단 로그가 통째로 비어 있던 게 단서였다).
+  세 필드는 `shared/agent-status-routing-fields.ts` 한 곳에 모아 두 경로가 같이 쓴다 — **다음 필드도
+  거기 넣는다.**
+- **키 입력 추론(중단·답변)을 손댈 때**: 서버는 잡의 행을 `<탭>:<세션>` 키로 들고 있는데 사람은
+  **터미널 페인**에서 키를 친다. 그래서 요청에 `providerSessionId`를 실어 세션으로 행을 찾는다
+  (`findInferenceTarget`). 페인 키만 보내면 잡 세션에서는 조용히 아무 일도 안 일어난다.
+- **중단 추론을 믿을 때**: ESC/Ctrl+C가 언제나 턴을 멈추지는 않는다(큐 메시지·`/btw`로 이미 새 턴이
+  시작된 뒤에 눌리면 곁가지 화면만 닫힌다). 그래서 **살아 있다는 증거가 추론을 이긴다** — 유예 15초
+  뒤의 `PreToolUse`(새 도구 시작)는 행을 되살린다. 완료 보고(`PostToolUse`)는 증거가 아니다: 멈춘
+  턴도 이미 돌던 `sleep 90`의 완료는 늦게 보고한다.
+- **알림에 포커스 대상을 실을 때**: 탭을 닫아도 그 안의 터미널은 계속 돌고 계속 알림을 쏜다. 알림의
+  페인 키는 **지금 열려 있는 탭의 터미널일 때만** 싣는다(`focusableNotificationPaneKey`) — 안 그러면
+  클릭이 닫아 둔 탭을 통째로 되살리고 엉뚱한 페인을 잡는다. 언리드·해제(ack)와 **같은 해석 키**를 쓸 것.
+- **터미널이 만든 것을 찾을 때는 전사에서 찾는다**: 화면 기록은 TUI가 대화를 계속 다시 그려서
+  **결과만 남고 명령 에코는 굴러 나간다**(실측: PR 링크 620번, `gh pr create` 0번). PR 판정은 전사의
+  생성 `tool_use` id ↔ 그 `tool_result`로 짝지어 뽑는다(`extractPullRequestUrlsFromTranscript`).
+  셸에서 직접 친 경우를 위해 기록 스캔은 남겨 두고 둘을 합친다.
 - **포커스 이벤트에 필드를 더할 때**: `FocusTerminalPaneDetail`에 넣는 것만으로는 안 간다.
   `activate-tab-and-focus-pane.ts`가 넘길 것을 **화이트리스트로 고른다.** 거기 안 적으면 아무
   경고 없이 버려진다(테두리 색이 계속 파랑이던 이유가 이것이었다). 그 파일의 테스트가 지금은
