@@ -178,6 +178,28 @@ describe('buildTerminalListEntries', () => {
     expect(entries.map((entry) => entry.status)).toEqual(['unread', 'working', 'idle'])
   })
 
+  it('carries the model an agent reported onto its row, and onto a row of its own', () => {
+    const modelled = makePaneKey('tab-1', LEAF_A)
+    const gone = makePaneKey('tab-1', LEAF_C)
+
+    const entries = buildTerminalListEntries(
+      input({
+        tabs: [tab('tab-1', 'shell')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A, LEAF_B]) },
+        agentStatusByPaneKey: {
+          [modelled]: { ...agentEntry(modelled, 'working'), model: ' claude-fable-5-1 ' },
+          [gone]: { ...agentEntry(gone, 'working'), model: 'gpt-5.6-sol' }
+        }
+      })
+    )
+
+    expect(entries.map((entry) => [entry.paneKey, entry.model])).toEqual([
+      [modelled, 'claude-fable-5-1'],
+      [gone, 'gpt-5.6-sol'],
+      [makePaneKey('tab-1', LEAF_B), undefined]
+    ])
+  })
+
   it('names a terminal by pane title, then live agent title, then the tab title', () => {
     const named = makePaneKey('tab-1', LEAF_A)
     const agentTitled = makePaneKey('tab-1', LEAF_B)

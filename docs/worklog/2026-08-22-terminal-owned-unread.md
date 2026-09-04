@@ -582,3 +582,29 @@ git push origin custom
   **새 도구를 시작했는가**다: 멈춘 턴은 완료를 늦게 보고할 수는 있어도 **다음 도구를 시작하지는 않는다**.
   그래서 유예(15초) 뒤의 `PreToolUse`만 생존 증거로 보고 행을 되살린다(`provesTurnOutlivedInterrupt`);
   완료 보고는 아무리 늦어도 계속 억제한다. 추론이 틀려도 15초 뒤 다음 도구에서 스스로 회복된다.
+
+## 행의 모델명 (2026-09-04)
+
+터미널 목록의 행 오른쪽 끝에 그 터미널의 에이전트가 쓰는 모델을 단다(`Fable 5.1`, `gpt-5.6-sol`).
+
+- **훅 입력에는 모델이 없다.** Claude Code(2.1.260) 훅 stdin의 공통 필드는 `session_id`·
+  `transcript_path`·`cwd`·`permission_mode`·`prompt_id`·`agent_id`뿐이다(바이너리의 스키마를 직접
+  읽어 확인). Codex(0.149)는 훅에 `model`을 싣고, upstream은 그걸 이미 `AgentStatusEntry.model`에
+  넣어 워크트리 카드와 대시보드에 칩으로 그리고 있었다. **비어 있던 건 Claude뿐이다.** 그래서
+  새 필드를 만들지 않고 같은 필드를 채운다 — 와이어에 이미 있는 선택 필드라 구·신 버전이 섞여도 안전하다.
+- **답은 전사다.** assistant 레코드마다 `message.model`이 있고 마지막 것이 지금 모델이다(`/model`로
+  바꾸면 다음 답변부터 바뀐다). `<synthetic>`(인터럽트·컨텍스트 한계 알림처럼 Claude Code가 스스로
+  쓴 레코드)과 `isSidechain`(서브에이전트) 레코드는 건너뛴다. 설정의 `[1m]` 꼬리는 전사에 안 남는다.
+- **읽는 시점**은 `claude-transcript-model.ts`가 정한다: `Stop`·`StopFailure`·`SessionStart`는
+  항상, 그 외 이벤트는 기억이 없거나 30초(아직 모델을 못 봤으면 5초) 지났을 때만. 도구 훅은 폭주하고
+  모델은 턴 경계에서만 바뀌기 때문이다. 기억은 **전사 경로 단위**다(`claudeModelReadingByTranscriptPath`,
+  512개 한도) — 페인 키는 데몬 밑 세션들이 공유하므로 축으로 못 쓴다(위 「페인 키 오배정」).
+- 읽는 자리가 `agent-hook-listener.ts`(공유 리스너)라 **SSH 릴레이에서도 같이 돈다** — 원격 세션은
+  원격 호스트가 자기 전사를 읽어 보낸다. `terminal-context-ipc.ts`(폴더·PR)에 넣지 않은 이유가
+  이것이다: 그쪽은 로컬 파일만 읽는다.
+- **표시**는 `formatAgentModelLabel` 하나다: `claude-fable-5-1` → `Fable 5.1`, 옛 순서
+  `claude-3-5-sonnet-20241022` → `Sonnet 3.5`, 날짜·`-v1:0`·`[1m]` 꼬리 제거, 모르는 id는 그대로.
+  터미널 목록·워크트리 카드·대시보드 세 칩이 같은 함수를 쓰고 툴팁에는 원본 id를 둔다.
+- 안 쓴 길: statusline(`/statusline/claude`)은 `model.display_name`을 갖고 있지만, 스크립트가
+  `rate_limits`가 없으면 아예 안 보내고 파서도 rate_limits만 읽는다. 구독 계정 여부에 따라 오거나
+  말거나 하는 경로라 전사 쪽을 택했다.

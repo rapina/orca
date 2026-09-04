@@ -23,6 +23,8 @@ export type TerminalListEntry = {
   position: string
   name: string
   status: TerminalListStatus
+  /** Model id the agent here last reported, as the provider names it. */
+  model?: string
 }
 
 const STATUS_RANK: Record<TerminalListStatus, number> = {
@@ -58,6 +60,12 @@ function agentStatusToListStatus(
     return 'question'
   }
   return entry.state === 'working' ? 'working' : 'idle'
+}
+
+/** Why on the row: two terminals of one repo look alike, and the model is what tells them apart. */
+function agentModelField(entry: AgentStatusEntry | undefined): { model?: string } {
+  const model = entry?.model?.trim()
+  return model ? { model } : {}
 }
 
 function listStatusOf(
@@ -182,7 +190,8 @@ function appendUnattachedAgents(
           parsed.tabId,
           parsed.leafId
         ),
-        status: listStatusOf(agentStatus, unread)
+        status: listStatusOf(agentStatus, unread),
+        ...agentModelField(entry)
       },
       tabIndex,
       paneIndex: Number.MAX_SAFE_INTEGER
@@ -252,7 +261,8 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
             tab.id,
             leafId
           ),
-          status
+          status,
+          ...agentModelField(paneKey ? input.agentStatusByPaneKey?.[paneKey] : undefined)
         },
         tabIndex,
         paneIndex
