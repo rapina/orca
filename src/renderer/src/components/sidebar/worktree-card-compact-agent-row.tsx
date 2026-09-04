@@ -10,6 +10,7 @@ import { translate } from '@/i18n/i18n'
 import { getAgentRowPrimaryText } from '@/lib/agent-row-primary-text'
 import { useAgentRowConversationName } from '@/components/dashboard/use-agent-row-conversation-name'
 import { lastEnteredDoneAt } from '@/components/dashboard/agent-finished-timestamp'
+import { formatAgentModelLabel } from '../../../../shared/agent-model-label'
 import CacheTimer, { usePromptCacheCountdownForPane } from './CacheTimer'
 
 function formatShortTimeAgo(ts: number, now: number): string {
@@ -223,7 +224,7 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
           )}
           title={model}
         >
-          {model}
+          {formatAgentModelLabel(model)}
         </span>
       )}
       {hasChildDisclosure && !childAgentsExpanded && (

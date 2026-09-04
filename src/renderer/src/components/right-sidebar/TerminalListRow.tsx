@@ -5,6 +5,7 @@ import { translate } from '@/i18n/i18n'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import type { TerminalListEntry, TerminalListStatus } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
+import { formatAgentModelLabel } from '../../../../shared/agent-model-label'
 import type { TerminalContext } from '../../../../shared/terminal-context'
 import { FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
 import { closeAllContextMenus, TerminalListRowMenu } from './TerminalListRowMenu'
@@ -156,6 +157,16 @@ export function TerminalListRow({
           the number is what points back at "tab 3, terminal 1". */}
           <span className="shrink-0 tabular-nums text-muted-foreground">{entry.position}</span>
           <span className="truncate">{entry.name}</span>
+          {entry.model ? (
+            // Why the same chip as the worktree card: one field, one look everywhere.
+            <span
+              data-testid="terminal-list-model"
+              className="ml-auto max-w-24 shrink-0 truncate font-mono text-[10px] text-muted-foreground/70"
+              title={entry.model}
+            >
+              {formatAgentModelLabel(entry.model)}
+            </span>
+          ) : null}
         </button>
       </div>
       {context ? <TerminalRowContext context={context} {...(ptyId ? { ptyId } : {})} /> : null}

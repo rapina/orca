@@ -8,6 +8,7 @@ import { DashboardAgentChildDisclosure } from './DashboardAgentChildDisclosure'
 import { DashboardAgentRowMessage } from './DashboardAgentRowMessage'
 import { DashboardAgentRowTrailingControls } from './DashboardAgentRowTrailingControls'
 import { DashboardAgentRowToolStep } from './DashboardAgentRowToolStep'
+import { formatAgentModelLabel } from '../../../../shared/agent-model-label'
 import type { AgentStatusState } from '../../../../shared/agent-status-types'
 import type { DashboardAgentRow as DashboardAgentRowData } from './useDashboardData'
 import { getAgentRowPrimaryText } from '@/lib/agent-row-primary-text'
@@ -274,7 +275,7 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
             className="max-w-24 shrink-0 truncate font-mono text-[10px] text-muted-foreground/70"
             title={model}
           >
-            {model}
+            {formatAgentModelLabel(model)}
           </span>
         )}
         {/* Why: "+N" badge shows the hidden child count when collapsed; redundant once children are expanded below. */}

@@ -79,6 +79,12 @@ import {
 } from './grok-session-paths'
 import { sweepStaleAgentHookEndpointTemps } from './agent-hook-endpoint-temp-cleanup'
 import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
+import {
+  type ClaudeTranscriptModelReading,
+  extractClaudeModelFromTranscriptLine,
+  rememberClaudeModelReading,
+  shouldReadClaudeModel
+} from './claude-transcript-model'
 
 /** Maximum request body size accepted by the listener (1 MB). */
 export const HOOK_REQUEST_MAX_BYTES = 1_000_000
@@ -149,6 +155,8 @@ export type HookListenerState = {
   codexSubagentTranscriptByPaneKey: Map<string, CodexSubagentTranscriptState>
   /** Root Codex state/model, kept separate from child hook traffic. */
   codexLeadStateByPaneKey: Map<string, CodexLeadTurnState>
+  /** Newest model each Claude transcript named, and when it was last looked at. */
+  claudeModelReadingByTranscriptPath: Map<string, ClaudeTranscriptModelReading>
 }
 
 export type ClaudeLeadTurnState = {
@@ -183,7 +191,8 @@ export function createHookListenerState(): HookListenerState {
     claudeActiveSessionCronPaneKeys: new Set(),
     codexSubagentRosterByPaneKey: new Map(),
     codexSubagentTranscriptByPaneKey: new Map(),
-    codexLeadStateByPaneKey: new Map()
+    codexLeadStateByPaneKey: new Map(),
+    claudeModelReadingByTranscriptPath: new Map()
   }
 }
 
@@ -293,6 +302,7 @@ export function clearAllListenerCaches(state: HookListenerState): void {
   state.codexSubagentRosterByPaneKey.clear()
   state.codexSubagentTranscriptByPaneKey.clear()
   state.codexLeadStateByPaneKey.clear()
+  state.claudeModelReadingByTranscriptPath.clear()
 }
 
 /** Warn-once on cross-build (`version`) and dev-vs-prod (`env`) mismatches; the relay's "remote" env marker is a location tag, not a build env, so it must not warn as a stale local hook. */
@@ -3049,6 +3059,38 @@ function normalizeClaudeEvent(
   })
 }
 
+/**
+ * The model the session is on, from its transcript.
+ *
+ * Why not every event: tool hooks come in bursts, and the model changes only at a
+ * turn boundary. Between boundaries a known model is trusted for a while, and a
+ * session that has not replied yet is looked at again sooner.
+ */
+function resolveClaudeModel(
+  state: HookListenerState,
+  eventName: unknown,
+  hookPayload: Record<string, unknown>
+): string | undefined {
+  const transcriptPath = readFirstString(hookPayload, ['transcript_path', 'transcriptPath'])
+  if (!transcriptPath) {
+    return undefined
+  }
+  const previous = state.claudeModelReadingByTranscriptPath.get(transcriptPath)
+  const now = Date.now()
+  if (!shouldReadClaudeModel(eventName, previous, now)) {
+    return previous?.model
+  }
+  // Why the fallback: a torn or shrunk file answers nothing, and nothing is not a change of model.
+  const model =
+    readLastTextFromTranscriptOnce(transcriptPath, extractClaudeModelFromTranscriptLine) ??
+    previous?.model
+  rememberClaudeModelReading(state.claudeModelReadingByTranscriptPath, transcriptPath, {
+    ...(model ? { model } : {}),
+    readAt: now
+  })
+  return model
+}
+
 function buildClaudeStatusPayload(
   state: HookListenerState,
   eventName: unknown,
@@ -3078,6 +3120,7 @@ function buildClaudeStatusPayload(
       resetOnNewTurn: options.updateToolSnapshot && isNewTurnEvent('claude', eventName)
     }),
     agentType: 'claude',
+    model: resolveClaudeModel(state, eventName, hookPayload),
     toolName: snapshot.toolName,
     toolInput: snapshot.toolInput,
     interactivePrompt: snapshot.interactivePrompt,
