@@ -21,6 +21,9 @@ type SyncDependencies = {
   getState: () => AppState
   resolveSessionTitles: (args: AiVaultSessionTitlesArgs) => Promise<AiVaultSessionTitlesResult>
   subscribe: (listener: (state: AppState, previous: AppState) => void) => () => void
+  onPaneTitles?: (
+    titles: ReadonlyMap<string, { request: AiVaultTitleRequest; title: string }>
+  ) => void
   scheduleReconcile?: (callback: () => void) => () => void
   setTimer?: (callback: () => void, delay: number) => ReturnType<typeof setTimeout> | number
   clearTimer?: (timer: ReturnType<typeof setTimeout> | number) => void
@@ -38,7 +41,11 @@ function scheduleMicrotask(callback: () => void): () => void {
   }
 }
 
-function nextLiveRefreshDelay(state: AppState, requests: AiVaultTitleRequest[]): number | null {
+function nextLiveRefreshDelay(
+  state: AppState,
+  requests: AiVaultTitleRequest[],
+  paneTitles: ReadonlyMap<string, { request: AiVaultTitleRequest; title: string }>
+): number | null {
   const liveRequests = requests.filter((request) => request.refresh)
   if (liveRequests.length === 0) {
     return null
@@ -49,6 +56,10 @@ function nextLiveRefreshDelay(state: AppState, requests: AiVaultTitleRequest[]):
       .map((tab) => [tab.id, tab] as const)
   )
   const hasMissingTitle = liveRequests.some((request) => {
+    if (request.paneKey) {
+      const stored = paneTitles.get(request.paneKey)
+      return !stored || requestIdentity(stored.request) !== requestIdentity(request)
+    }
     const stored = tabsById.get(request.tabId)?.aiVaultTitle
     return (
       stored?.agent !== request.agent ||
@@ -72,8 +83,24 @@ export function startAiVaultTabTitleSync(dependencies: SyncDependencies): () => 
   let cancelScheduled: (() => void) | null = null
   let stopped = false
   let writing = false
+  const paneTitles = new Map<string, { request: AiVaultTitleRequest; title: string }>()
+  const collectRequests = (state: AppState): AiVaultTitleRequest[] =>
+    collectAiVaultTitleRequests(state, Boolean(dependencies.onPaneTitles))
 
   const writeTitle = (request: AiVaultTitleRequest, title: string | null): void => {
+    if (request.paneKey) {
+      if (title) {
+        paneTitles.set(request.paneKey, { request, title })
+      } else {
+        paneTitles.delete(request.paneKey)
+      }
+      const selected = collectAiVaultTitleRequests(dependencies.getState()).find(
+        (candidate) => candidate.tabId === request.tabId
+      )
+      if (!selected || requestIdentity(selected) !== requestIdentity(request)) {
+        return
+      }
+    }
     writing = true
     try {
       dependencies
@@ -111,19 +138,20 @@ export function startAiVaultTabTitleSync(dependencies: SyncDependencies): () => 
         )
       }
     }
-    const currentByTabId = new Map(
-      collectAiVaultTitleRequests(dependencies.getState()).map((request) => [
-        request.tabId,
+    const currentByTarget = new Map(
+      collectRequests(dependencies.getState()).map((request) => [
+        request.paneKey ?? request.tabId,
         request
       ])
     )
     for (const request of requests) {
-      const current = currentByTabId.get(request.tabId)
+      const current = currentByTarget.get(request.paneKey ?? request.tabId)
       const title = titleByIdentity.get(requestIdentity(request))
       if (current && requestIdentity(current) === requestIdentity(request) && title) {
         writeTitle(request, title)
       }
     }
+    dependencies.onPaneTitles?.(paneTitles)
   }
 
   const reconcile = async (): Promise<void> => {
@@ -146,8 +174,30 @@ export function startAiVaultTabTitleSync(dependencies: SyncDependencies): () => 
         .flat()
         .map((tab) => [tab.id, tab] as const)
     )
-    const requests = collectAiVaultTitleRequests(state)
+    const requests = collectRequests(state)
+    const currentByPane = new Map(requests.map((request) => [request.paneKey, request]))
+    for (const [paneKey, stored] of paneTitles) {
+      const current = currentByPane.get(paneKey)
+      if (!current || requestIdentity(current) !== requestIdentity(stored.request)) {
+        paneTitles.delete(paneKey)
+      }
+    }
+    dependencies.onPaneTitles?.(paneTitles)
+    if (dependencies.onPaneTitles) {
+      for (const request of collectAiVaultTitleRequests(state)) {
+        const stored = tabsById.get(request.tabId)?.aiVaultTitle
+        if (
+          stored &&
+          (stored.agent !== request.agent || stored.sessionId !== request.providerSession.id)
+        ) {
+          writeTitle(request, null)
+        }
+      }
+    }
     const requestsToScan = requests.filter((request) => {
+      if (request.paneKey) {
+        return request.refresh || !paneTitles.has(request.paneKey)
+      }
       const stored = tabsById.get(request.tabId)?.aiVaultTitle
       const identityMatches =
         stored?.agent === request.agent && stored.sessionId === request.providerSession.id
@@ -168,8 +218,8 @@ export function startAiVaultTabTitleSync(dependencies: SyncDependencies): () => 
       schedule()
     } else if (!stopped) {
       const currentState = dependencies.getState()
-      const currentRequests = collectAiVaultTitleRequests(currentState)
-      const refreshDelay = nextLiveRefreshDelay(currentState, currentRequests)
+      const currentRequests = collectRequests(currentState)
+      const refreshDelay = nextLiveRefreshDelay(currentState, currentRequests, paneTitles)
       if (refreshDelay !== null) {
         refreshTimer = setTimer(schedule, refreshDelay)
       }
@@ -196,6 +246,8 @@ export function startAiVaultTabTitleSync(dependencies: SyncDependencies): () => 
 
   return () => {
     stopped = true
+    paneTitles.clear()
+    dependencies.onPaneTitles?.(paneTitles)
     unsubscribe()
     cancelScheduled?.()
     cancelScheduled = null

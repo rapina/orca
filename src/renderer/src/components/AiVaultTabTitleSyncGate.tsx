@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { startAiVaultTabTitleSync } from '@/lib/ai-vault-tab-title-sync'
 import { scheduleAfterInputQuiet } from '@/lib/input-quiet-scheduler'
 import { useAppStore } from '@/store'
+import { publishPaneSessionTitles } from '@/lib/pane-session-titles'
 
 const TITLE_SYNC_DELAY_MS = 1_000
 const TITLE_SYNC_QUIET_MS = 1_500
@@ -13,6 +14,7 @@ export function AiVaultTabTitleSyncGate(): null {
       startAiVaultTabTitleSync({
         getState: useAppStore.getState,
         subscribe: useAppStore.subscribe,
+        onPaneTitles: publishPaneSessionTitles,
         resolveSessionTitles: (args) => window.api.aiVault.resolveSessionTitles(args),
         scheduleReconcile: (callback) =>
           scheduleAfterInputQuiet(callback, {

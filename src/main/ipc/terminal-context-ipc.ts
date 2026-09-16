@@ -1,15 +1,16 @@
+import { readTerminalTranscriptContext } from './terminal-transcript-reader'
+import { resolveSessionFilePath } from '../native-chat/session-file-resolver'
 import { open, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, ipcMain } from 'electron'
 import { isValidPaneKey } from '../agent-hooks/server'
 import {
   extractPullRequestUrls,
-  extractPullRequestUrlsFromTranscript,
   MAX_TERMINAL_PULL_REQUESTS,
-  parseTranscriptWorkingDirectory,
   PULL_REQUEST_CREATE_WINDOW_CHARS,
   worktreeNameFromPath,
-  type TerminalContext
+  type TerminalContext,
+  type TerminalContextRequest
 } from '../../shared/terminal-context'
 
 /** Why capped: the first sweep of a long-lived terminal would otherwise read the
@@ -20,13 +21,7 @@ const FIRST_SCAN_BYTES = 4 * 1024 * 1024
  *  Three bytes per character covers the widest UTF-8 the window can hold, and
  *  the tail covers a link written across two reads. */
 const SCAN_OVERLAP_BYTES = PULL_REQUEST_CREATE_WINDOW_CHARS * 3 + 256
-/** Why enough: the working directory sits on every record, so the newest few suffice. */
-const TRANSCRIPT_TAIL_BYTES = 64 * 1024
 const MAX_TERMINALS = 200
-
-export type TerminalContextRequest = {
-  terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
-}
 
 type ScanState = { scannedTo: number; urls: string[] }
 
@@ -39,12 +34,6 @@ type ScanState = { scannedTo: number; urls: string[] }
  * links found earlier are remembered rather than re-found.
  */
 const scansByPtyId = new Map<string, ScanState>()
-/** The same, for transcripts: an agent's own record of the requests it opened. */
-const transcriptScansByPath = new Map<string, ScanState>()
-/** Why enough overlap: a create tool call and the result carrying its link are
- *  neighbouring records, even when the call holds a whole pull request body. */
-const TRANSCRIPT_SCAN_OVERLAP_BYTES = 256 * 1024
-
 function historyLogPath(ptyId: string): string {
   return join(app.getPath('userData'), 'terminal-history', encodeURIComponent(ptyId), 'output.log')
 }
@@ -76,6 +65,9 @@ async function scanPullRequestUrls(ptyId: string): Promise<string[]> {
     return scansByPtyId.get(ptyId)?.urls ?? []
   }
   const previous = scansByPtyId.get(ptyId)
+  if (previous?.scannedTo === size) {
+    return previous.urls
+  }
   // Why the reset: a recording that shrank was replaced, so what was read before
   // describes a terminal that no longer exists.
   const state = previous && previous.scannedTo <= size ? previous : { scannedTo: 0, urls: [] }
@@ -98,69 +90,42 @@ async function scanPullRequestUrls(ptyId: string): Promise<string[]> {
     urls: urls.slice(-MAX_TERMINAL_PULL_REQUESTS)
   }
   scansByPtyId.set(ptyId, next)
+  if (scansByPtyId.size > MAX_TERMINALS) {
+    scansByPtyId.delete(scansByPtyId.keys().next().value!)
+  }
   return next.urls
 }
 
-/** Links the agent's own transcript records it opened, carried across calls. */
-async function scanTranscriptPullRequestUrls(transcriptPath: string): Promise<string[]> {
-  if (!transcriptPath.toLowerCase().endsWith('.jsonl')) {
-    return []
+const resolvedPaths = new Map<string, string>()
+
+async function transcriptFor(
+  terminal: TerminalContextRequest['terminals'][number]
+): Promise<string | undefined> {
+  // A remote path must never be resolved against this computer's session store.
+  if (terminal.connectionId) {
+    return undefined
   }
-  let size: number
-  try {
-    ;({ size } = await stat(transcriptPath))
-  } catch {
-    return transcriptScansByPath.get(transcriptPath)?.urls ?? []
+  if (terminal.transcriptPath) {
+    return terminal.transcriptPath
   }
-  const previous = transcriptScansByPath.get(transcriptPath)
-  const state = previous && previous.scannedTo <= size ? previous : { scannedTo: 0, urls: [] }
-  const from =
-    state.scannedTo > 0
-      ? Math.max(0, state.scannedTo - TRANSCRIPT_SCAN_OVERLAP_BYTES)
-      : Math.max(0, size - FIRST_SCAN_BYTES)
-  const text = await readRange(transcriptPath, from, size - from)
-  if (text === null) {
-    return state.urls
+  if (!terminal.agentType || !terminal.sessionId) {
+    return undefined
   }
-  const urls = [...state.urls]
-  for (const url of extractPullRequestUrlsFromTranscript(text)) {
-    if (!urls.includes(url)) {
-      urls.push(url)
+  const key = `${terminal.agentType}:${terminal.sessionId}`
+  const cached = resolvedPaths.get(key)
+  if (cached) {
+    return cached
+  }
+  const path = await resolveSessionFilePath(terminal.agentType, terminal.sessionId).catch(
+    () => null
+  )
+  if (path) {
+    resolvedPaths.set(key, path)
+    if (resolvedPaths.size > MAX_TERMINALS) {
+      resolvedPaths.delete(resolvedPaths.keys().next().value!)
     }
   }
-  const next: ScanState = { scannedTo: size, urls: urls.slice(-MAX_TERMINAL_PULL_REQUESTS) }
-  transcriptScansByPath.set(transcriptPath, next)
-  return next.urls
-}
-
-async function readWorkingDirectory(
-  transcriptPath: string
-): Promise<{ worktreeName: string; branch?: string } | null> {
-  if (!transcriptPath.toLowerCase().endsWith('.jsonl')) {
-    return null
-  }
-  let size: number
-  try {
-    ;({ size } = await stat(transcriptPath))
-  } catch {
-    return null
-  }
-  const from = Math.max(0, size - TRANSCRIPT_TAIL_BYTES)
-  const tail = await readRange(transcriptPath, from, size - from)
-  if (!tail) {
-    return null
-  }
-  // Why the sentinel: the first line of a tail read is half a record, and the
-  // parser drops line 0 for exactly that reason.
-  const parsed = parseTranscriptWorkingDirectory(from > 0 ? tail : `\n${tail}`)
-  if (!parsed) {
-    return null
-  }
-  const worktreeName = worktreeNameFromPath(parsed.cwd)
-  if (!worktreeName) {
-    return null
-  }
-  return parsed.branch ? { worktreeName, branch: parsed.branch } : { worktreeName }
+  return path ?? undefined
 }
 
 export async function readTerminalContexts(
@@ -168,25 +133,23 @@ export async function readTerminalContexts(
 ): Promise<TerminalContext[]> {
   const contexts: TerminalContext[] = []
   for (const terminal of request.terminals) {
-    const fromRecording = terminal.ptyId ? await scanPullRequestUrls(terminal.ptyId) : []
+    const fromRecording =
+      terminal.ptyId && !terminal.connectionId ? await scanPullRequestUrls(terminal.ptyId) : []
     // Why both: a person typing `gh pr create` at a shell leaves it only in the
     // recording, and an agent's TUI leaves it only in its transcript.
-    const fromTranscript = terminal.transcriptPath
-      ? await scanTranscriptPullRequestUrls(terminal.transcriptPath)
-      : []
-    const pullRequestUrls = [...fromRecording, ...fromTranscript]
-      .filter((url, index, all) => all.indexOf(url) === index)
-      .slice(-MAX_TERMINAL_PULL_REQUESTS)
-    const directory = terminal.transcriptPath
-      ? await readWorkingDirectory(terminal.transcriptPath)
-      : null
+    const transcriptPath = await transcriptFor(terminal)
+    const transcript = transcriptPath ? await readTerminalTranscriptContext(transcriptPath) : null
+    const pullRequestUrls = [...new Set(transcript?.urls ?? fromRecording)].slice(
+      -MAX_TERMINAL_PULL_REQUESTS
+    )
+    const directory = transcript?.directory
     if (pullRequestUrls.length === 0 && !directory) {
       continue
     }
     contexts.push({
       paneKey: terminal.paneKey,
       pullRequestUrls,
-      ...(directory?.worktreeName ? { worktreeName: directory.worktreeName } : {}),
+      ...(directory?.cwd ? { worktreeName: worktreeNameFromPath(directory.cwd) } : {}),
       ...(directory?.branch ? { branch: directory.branch } : {})
     })
   }
@@ -209,6 +172,15 @@ function sanitizeRequest(value: unknown): TerminalContextRequest | null {
     }
     terminals.push({
       paneKey: terminal.paneKey,
+      ...(terminal.agentType === 'claude' || terminal.agentType === 'codex'
+        ? { agentType: terminal.agentType }
+        : {}),
+      ...(typeof terminal.sessionId === 'string' && terminal.sessionId.length > 0
+        ? { sessionId: terminal.sessionId }
+        : {}),
+      ...(typeof terminal.connectionId === 'string' && terminal.connectionId.length > 0
+        ? { connectionId: terminal.connectionId }
+        : {}),
       ...(typeof terminal.ptyId === 'string' && terminal.ptyId.length > 0
         ? { ptyId: terminal.ptyId }
         : {}),

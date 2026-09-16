@@ -1,3 +1,4 @@
+import type { TerminalContext, TerminalContextRequest } from '../../shared/terminal-context'
 import type {
   AgentStatusClearIpcPayload,
   AgentStatusIpcPayload,
@@ -55,16 +56,7 @@ export type AgentStatusApi = {
   noteRoutingDiagnostic: (line: string) => void
   /** What each terminal is working on: the folder its agent is in, and the pull
    *  requests its own output has shown. */
-  readTerminalContexts: (args: {
-    terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
-  }) => Promise<
-    {
-      paneKey: string
-      worktreeName?: string
-      branch?: string
-      pullRequestUrls: string[]
-    }[]
-  >
+  readTerminalContexts: (args: TerminalContextRequest) => Promise<TerminalContext[]>
 }
 
 export type AgentTrustApi = {

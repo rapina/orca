@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- Why: preload is the audited renderer/Electron IPC contract; co-locating the surface eases security and type-drift review. */
+import type { TerminalContext, TerminalContextRequest } from '../shared/terminal-context'
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { preloadE2EConfig } from './e2e-config'
@@ -4899,16 +4900,8 @@ const api = {
     noteRoutingDiagnostic: (line: string): void => {
       ipcRenderer.send('agentStatus:noteRoutingDiagnostic', line)
     },
-    readTerminalContexts: (args: {
-      terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
-    }): Promise<
-      {
-        paneKey: string
-        worktreeName?: string
-        branch?: string
-        pullRequestUrls: string[]
-      }[]
-    > => ipcRenderer.invoke('agentStatus:readTerminalContexts', args)
+    readTerminalContexts: (args: TerminalContextRequest): Promise<TerminalContext[]> =>
+      ipcRenderer.invoke('agentStatus:readTerminalContexts', args)
   },
 
   speech: {

@@ -84,3 +84,44 @@ describe('buildTerminalContextRequest', () => {
     expect(moved).not.toBe(first)
   })
 })
+
+describe('Codex context routing', () => {
+  it('requests session discovery without a transcript path and distinguishes hosts', () => {
+    const paneKey = `tabA:${LEAF_A}`
+    const local = { ...status(paneKey), agentType: 'codex' }
+    const input = {
+      entries: [entry('tabA', LEAF_A, '1.1')],
+      layoutsByTabId: layouts,
+      agentStatusByPaneKey: { [paneKey]: local }
+    }
+    const request = buildTerminalContextRequest(input)
+    expect(request.terminals[0]).toEqual({
+      paneKey,
+      ptyId: 'pty-a',
+      agentType: 'codex',
+      sessionId: 'session-1'
+    })
+    const remote = buildTerminalContextRequest({
+      ...input,
+      agentStatusByPaneKey: { [paneKey]: { ...local, connectionId: 'ssh-host' } }
+    })
+    expect(remote.terminals[0]?.connectionId).toBe('ssh-host')
+    expect(terminalContextRequestKey(remote)).not.toBe(terminalContextRequestKey(request))
+  })
+
+  it('invalidates context when a shell starts a different session on the same pane', () => {
+    const paneKey = `tabA:${LEAF_A}`
+    const first = { ...status(paneKey), agentType: 'codex' }
+    const input = {
+      entries: [entry('tabA', LEAF_A, '1.1')],
+      layoutsByTabId: layouts,
+      agentStatusByPaneKey: { [paneKey]: first }
+    }
+    const second = { ...first, providerSession: { key: 'session_id' as const, id: 'session-2' } }
+    expect(terminalContextRequestKey(buildTerminalContextRequest(input))).not.toBe(
+      terminalContextRequestKey(
+        buildTerminalContextRequest({ ...input, agentStatusByPaneKey: { [paneKey]: second } })
+      )
+    )
+  })
+})

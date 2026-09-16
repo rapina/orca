@@ -9,6 +9,7 @@ import {
   type TerminalListEntry
 } from '@/lib/terminal-list-model'
 import { useAppStore } from '@/store'
+import { usePaneSessionTitles } from '@/lib/pane-session-titles'
 import {
   getAgentSessionPaneBinding,
   unbindAgentSessionPane
@@ -29,15 +30,23 @@ import { useTerminalContexts } from './terminal-row-context'
  */
 export default function TerminalListPanel(): React.JSX.Element {
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
+  const sessionTitlesByPaneKey = usePaneSessionTitles((s) => s.titles)
   const tabs = useAppStore((s) =>
     activeWorktreeId ? (s.tabsByWorktree[activeWorktreeId] ?? EMPTY_TABS) : EMPTY_TABS
   )
-  const { layoutsByTabId, paneTitlesByTabId, agentStatusByPaneKey, agentStatusEpoch } = useAppStore(
+  const {
+    layoutsByTabId,
+    paneTitlesByTabId,
+    agentStatusByPaneKey,
+    agentStatusEpoch,
+    foregroundByPaneKey
+  } = useAppStore(
     useShallow((s) => ({
       layoutsByTabId: s.terminalLayoutsByTabId,
       paneTitlesByTabId: s.runtimePaneTitlesByLeafId,
       agentStatusByPaneKey: s.agentStatusByPaneKey,
-      agentStatusEpoch: s.agentStatusEpoch
+      agentStatusEpoch: s.agentStatusEpoch,
+      foregroundByPaneKey: s.paneForegroundAgentByPaneKey
     }))
   )
   const { unreadTerminalPanes, unreadAgentCompletionPanes, unreadTerminalTabs } = useAppStore(
@@ -76,6 +85,8 @@ export default function TerminalListPanel(): React.JSX.Element {
         layoutsByTabId,
         paneTitlesByTabId,
         agentStatusByPaneKey,
+        sessionTitlesByPaneKey,
+        foregroundByPaneKey,
         unreadTerminalPanes,
         unreadAgentCompletionPanes,
         unreadTerminalTabs,
@@ -91,7 +102,9 @@ export default function TerminalListPanel(): React.JSX.Element {
       layoutsByTabId,
       paneTitlesByTabId,
       agentStatusByPaneKey,
+      sessionTitlesByPaneKey,
       agentStatusEpoch,
+      foregroundByPaneKey,
       unreadTerminalPanes,
       unreadAgentCompletionPanes,
       unreadTerminalTabs,
@@ -171,7 +184,7 @@ export default function TerminalListPanel(): React.JSX.Element {
   if (entries.length === 0) {
     return (
       <div className="px-3 py-2 text-xs text-muted-foreground">
-        {translate('components.terminalList.empty', 'No terminals in this worktree')}
+        {translate('components.terminalList.noAgents', 'No agents running in this workspace')}
       </div>
     )
   }

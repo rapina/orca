@@ -15605,7 +15605,8 @@
         "openInOrca": "Open in Orca",
         "openInBrowser": "Open in browser",
         "copy": "Copy link"
-      }
+      },
+      "noAgents": "No agents running in this workspace"
     },
     "terminalUnread": {
       "paneBell": "Unread terminal activity",

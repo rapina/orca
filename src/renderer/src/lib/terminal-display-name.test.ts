@@ -182,3 +182,27 @@ describe('resolveUnreadTerminalName', () => {
     expect(resolveUnreadTerminalName(sources(), TAB)).toBeNull()
   })
 })
+
+describe('Codex session names', () => {
+  it('uses this session prompt instead of a sibling title copied into status', () => {
+    const codex = {
+      ...entry(LEAF_B, 'working', 'Sibling task'),
+      agentType: 'codex',
+      prompt: 'Fix the session context reader'
+    }
+    const state = { ...sources({ entries: [codex] }), tabTitle: 'Sibling task' }
+    expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('Fix the session context reader')
+  })
+
+  it('uses the session identity before borrowing a sibling name when no prompt arrived', () => {
+    const codex = {
+      ...entry(LEAF_B, 'done', 'Sibling task'),
+      agentType: 'codex',
+      providerSession: { key: 'session_id' as const, id: 'abcdefgh-1234' }
+    }
+    const state = { ...sources({ entries: [codex] }), tabTitle: 'Sibling task' }
+    expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('Codex · abcdefgh')
+    state.layout!.titlesByLeafId = { [LEAF_B]: 'My custom name' }
+    expect(resolveTerminalName(state, TAB, LEAF_B)).toBe('My custom name')
+  })
+})

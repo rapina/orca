@@ -2,9 +2,8 @@ import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
 import type { TerminalListEntry } from './terminal-list-model'
 
-export type TerminalContextRequest = {
-  terminals: { paneKey: string; ptyId?: string; transcriptPath?: string }[]
-}
+import type { TerminalContextRequest } from '../../../shared/terminal-context'
+export type { TerminalContextRequest } from '../../../shared/terminal-context'
 
 /**
  * Which terminals to read context for, and where each one's context lives.
@@ -29,13 +28,23 @@ export function buildTerminalContextRequest(input: {
     const ptyId = entry.leafId
       ? input.layoutsByTabId[entry.tabId]?.ptyIdsByLeafId?.[entry.leafId]
       : undefined
-    const transcriptPath =
-      input.agentStatusByPaneKey?.[entry.paneKey]?.providerSession?.transcriptPath?.trim()
-    if (!ptyId && !transcriptPath) {
+    const status = input.agentStatusByPaneKey?.[entry.paneKey]
+    const transcriptPath = status?.providerSession?.transcriptPath?.trim()
+    const agentType =
+      status?.agentType === 'codex'
+        ? 'codex'
+        : status?.agentType === 'claude'
+          ? 'claude'
+          : undefined
+    const sessionId = agentType ? status?.providerSession?.id?.trim() : undefined
+    if (!ptyId && !transcriptPath && !sessionId) {
       continue
     }
     terminals.push({
       paneKey: entry.paneKey,
+      ...(agentType ? { agentType } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(status?.connectionId ? { connectionId: status.connectionId } : {}),
       ...(ptyId ? { ptyId } : {}),
       ...(transcriptPath ? { transcriptPath } : {})
     })
@@ -52,9 +61,5 @@ export function buildTerminalContextRequest(input: {
  * keystroke of agent output.
  */
 export function terminalContextRequestKey(request: TerminalContextRequest): string {
-  return request.terminals
-    .map(
-      (terminal) => `${terminal.paneKey}|${terminal.ptyId ?? ''}|${terminal.transcriptPath ?? ''}`
-    )
-    .join('\n')
+  return JSON.stringify(request.terminals)
 }

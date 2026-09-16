@@ -11,7 +11,8 @@ import { TerminalRowPullRequestChip } from './TerminalRowPullRequestChip'
 
 /** Why re-read on a timer: a pull request appears in a recording minutes after the
  *  row was drawn, and nothing tells the renderer that it did. */
-const TERMINAL_CONTEXT_REFRESH_MS = 30_000
+const TERMINAL_CONTEXT_REFRESH_MS = 10_000
+const EMPTY_CONTEXTS: Record<string, TerminalContext> = {}
 
 /**
  * What each terminal is working on, kept fresh while the panel is open.
@@ -26,28 +27,41 @@ const TERMINAL_CONTEXT_REFRESH_MS = 30_000
 export function useTerminalContexts(
   request: TerminalContextRequest
 ): Record<string, TerminalContext> {
-  const [contexts, setContexts] = useState<Record<string, TerminalContext>>({})
+  const [result, setResult] = useState<{ key: string; contexts: Record<string, TerminalContext> }>({
+    key: '',
+    contexts: EMPTY_CONTEXTS
+  })
   const requestRef = useRef(request)
   requestRef.current = request
   const requestKey = terminalContextRequestKey(request)
 
   useEffect(() => {
     if (requestRef.current.terminals.length === 0) {
-      setContexts({})
       return
     }
     let cancelled = false
+    let reading = false
     const read = (): void => {
+      if (reading) {
+        return
+      }
+      reading = true
       void window.api?.agentStatus
         ?.readTerminalContexts?.(requestRef.current)
         .then((rows) => {
           if (!cancelled) {
-            setContexts(Object.fromEntries(rows.map((row) => [row.paneKey, row])))
+            setResult({
+              key: requestKey,
+              contexts: Object.fromEntries(rows.map((row) => [row.paneKey, row]))
+            })
           }
         })
         .catch(() => {
           // Why swallowed: these lines are context on a row that reads fine without
           // them; a failed disk read must not take the terminal list with it.
+        })
+        .finally(() => {
+          reading = false
         })
     }
     read()
@@ -58,7 +72,7 @@ export function useTerminalContexts(
     }
   }, [requestKey])
 
-  return contexts
+  return result.key === requestKey ? result.contexts : EMPTY_CONTEXTS
 }
 
 /**

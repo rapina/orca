@@ -1,3 +1,6 @@
+import { terminalHasAgent } from './terminal-list-agent-presence'
+import type { PaneSessionTitles } from './pane-session-titles'
+import type { PaneForegroundAgentEntry } from '../store/slices/pane-foreground-agent'
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
@@ -121,12 +124,16 @@ export function orderTerminalTabsForStrip(input: {
 }
 
 export type TerminalListInput = PaneUnreadMaps & {
+  includePlainTerminals?: boolean
+  foregroundByPaneKey?: Readonly<Record<string, PaneForegroundAgentEntry>>
+
   tabs: readonly TerminalTab[]
   layoutsByTabId: Readonly<Record<string, TerminalLayoutSnapshot | undefined>>
   /** Live pane titles by tab then layout leaf; without them a split's terminals
    *  would all fall back to the shared tab title. */
   paneTitlesByTabId: Readonly<Record<string, Readonly<Record<string, string>>>> | undefined
   agentStatusByPaneKey: Record<string, AgentStatusEntry> | undefined
+  sessionTitlesByPaneKey?: PaneSessionTitles
   unreadTerminalTabs: Readonly<Record<string, boolean | undefined>> | undefined
   /** Window titles that name no turn — see `TerminalNameSources`. */
   uninformativeTitles?: ReadonlySet<string> | undefined
@@ -184,6 +191,7 @@ function appendUnattachedAgents(
             layout: input.layoutsByTabId[parsed.tabId],
             paneTitlesByLeafId: input.paneTitlesByTabId?.[parsed.tabId],
             agentStatusByPaneKey: input.agentStatusByPaneKey,
+            sessionTitlesByPaneKey: input.sessionTitlesByPaneKey,
             tabTitle: input.tabs[tabIndex]?.title ?? '',
             ...(input.uninformativeTitles ? { uninformativeTitles: input.uninformativeTitles } : {})
           },
@@ -253,6 +261,7 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
               layout,
               paneTitlesByLeafId: input.paneTitlesByTabId?.[tab.id],
               agentStatusByPaneKey: input.agentStatusByPaneKey,
+              sessionTitlesByPaneKey: input.sessionTitlesByPaneKey,
               tabTitle,
               ...(input.uninformativeTitles
                 ? { uninformativeTitles: input.uninformativeTitles }
@@ -280,4 +289,18 @@ export function buildTerminalListEntries(input: TerminalListInput): TerminalList
         a.paneIndex - b.paneIndex
     )
     .map((item) => item.entry)
+    .filter((entry) => {
+      if (input.includePlainTerminals) {
+        return true
+      }
+      const tab = input.tabs.find((candidate) => candidate.id === entry.tabId)
+      const status = entry.paneKey ? input.agentStatusByPaneKey?.[entry.paneKey] : undefined
+      const layout = input.layoutsByTabId[entry.tabId]
+      return terminalHasAgent({
+        status,
+        foreground: entry.paneKey ? input.foregroundByPaneKey?.[entry.paneKey] : undefined,
+        title: entry.leafId ? input.paneTitlesByTabId?.[entry.tabId]?.[entry.leafId] : undefined,
+        launchAgent: !layout?.root || layout.root.type === 'leaf' ? tab?.launchAgent : undefined
+      })
+    })
 }

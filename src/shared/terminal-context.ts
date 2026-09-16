@@ -1,3 +1,9 @@
+export {
+  MAX_TERMINAL_PULL_REQUESTS,
+  parseTranscriptWorkingDirectory,
+  extractPullRequestUrlsFromTranscript
+} from './terminal-transcript-context'
+
 /**
  * What a terminal is working on, read from what it and its agent left on disk.
  *
@@ -18,9 +24,6 @@ export type TerminalContext = {
   /** Pull requests this terminal's own output has shown, oldest first. */
   pullRequestUrls: string[]
 }
-
-/** Why bounded: a long-lived terminal can name a dozen; the row has space for a few. */
-export const MAX_TERMINAL_PULL_REQUESTS = 8
 
 // GitHub (any host, so an enterprise instance counts) and GitLab's `/-/merge_requests/` path.
 const PULL_REQUEST_URL =
@@ -74,120 +77,10 @@ export function extractPullRequestUrls(text: string): string[] {
   return seen
 }
 
-/** Why bounded: a torn or hostile transcript must not grow this set without end. */
-const MAX_TRACKED_CREATE_TOOL_USES = 64
-// Why a second copy: `test` on a global regex carries lastIndex between calls.
-const PULL_REQUEST_CREATE_MARK_TEST = new RegExp(PULL_REQUEST_CREATE_MARK.source)
-
-function collectRecordUrls(value: unknown, into: string[]): void {
-  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '')
-  for (const match of text.matchAll(PULL_REQUEST_URL)) {
-    if (!into.includes(match[0])) {
-      into.push(match[0])
-    }
-  }
-}
-
-/**
- * Pull requests an agent opened, read from its transcript.
- *
- * Why not the terminal's recording alone: an agent's TUI redraws its conversation
- * for as long as it is on screen, so the link it printed survives hundreds of
- * times while the command that made it scrolls out of the recording entirely
- * (measured on a live terminal: 620 copies of the link, not one `gh pr create`).
- * The transcript keeps the two as records - the tool call with the command, and
- * the result it returned - so the link that follows a create is exact.
- *
- * A torn first line, a half-written last one, and records read out of order are
- * all ordinary here; every line that does not parse is skipped.
- */
-export function extractPullRequestUrlsFromTranscript(text: string): string[] {
-  const createToolUseIds = new Set<string>()
-  const urls: string[] = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) {
-      continue
-    }
-    let record: unknown
-    try {
-      record = JSON.parse(trimmed)
-    } catch {
-      continue
-    }
-    const content = ((record as Record<string, unknown>)?.message as Record<string, unknown>)
-      ?.content
-    if (!Array.isArray(content)) {
-      continue
-    }
-    for (const raw of content) {
-      const part = raw as Record<string, unknown>
-      if (part?.type === 'tool_use' && typeof part.id === 'string') {
-        // Why the whole input: the command can be nested (a heredoc body, a shell
-        // wrapper), and a create is a create wherever the words sit.
-        if (PULL_REQUEST_CREATE_MARK_TEST.test(JSON.stringify(part.input ?? ''))) {
-          const oldest = createToolUseIds.values().next().value
-          if (createToolUseIds.size >= MAX_TRACKED_CREATE_TOOL_USES && oldest !== undefined) {
-            createToolUseIds.delete(oldest)
-          }
-          createToolUseIds.add(part.id)
-        }
-        continue
-      }
-      if (
-        part?.type === 'tool_result' &&
-        typeof part.tool_use_id === 'string' &&
-        createToolUseIds.has(part.tool_use_id)
-      ) {
-        collectRecordUrls(part.content, urls)
-        collectRecordUrls((record as Record<string, unknown>).toolUseResult, urls)
-      }
-    }
-  }
-  return urls
-}
-
 /** `#653` for a pull request, `!42` for a merge request — what a row has room for. */
 export function pullRequestLabel(url: string): string {
   const number = url.slice(url.lastIndexOf('/') + 1)
   return url.includes('/-/merge_requests/') ? `!${number}` : `#${number}`
-}
-
-/**
- * The directory and branch a transcript last recorded.
- *
- * Why the last and not the first: a session that starts in a repo root and moves
- * into a worktree keeps its first records, so reading from the top answers with
- * the folder it left. Why line by line rather than a JSON parse of the tail: the
- * tail begins mid-record, and later records can be torn by a concurrent write.
- */
-export function parseTranscriptWorkingDirectory(
-  tail: string
-): { cwd: string; branch?: string } | null {
-  const lines = tail.split('\n')
-  for (let index = lines.length - 1; index >= 1; index -= 1) {
-    const line = lines[index]?.trim()
-    if (!line) {
-      continue
-    }
-    let record: unknown
-    try {
-      record = JSON.parse(line)
-    } catch {
-      continue
-    }
-    if (!record || typeof record !== 'object') {
-      continue
-    }
-    const row = record as Record<string, unknown>
-    const cwd = typeof row.cwd === 'string' ? row.cwd.trim() : ''
-    if (!cwd) {
-      continue
-    }
-    const branch = typeof row.gitBranch === 'string' ? row.gitBranch.trim() : ''
-    return branch ? { cwd, branch } : { cwd }
-  }
-  return null
 }
 
 /**
@@ -208,4 +101,15 @@ export function worktreeNameFromPath(cwd: string): string {
   const trimmed = cwd.replace(/[\\/]+$/, '')
   const separator = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
   return separator === -1 ? trimmed : trimmed.slice(separator + 1)
+}
+
+export type TerminalContextRequest = {
+  terminals: {
+    paneKey: string
+    ptyId?: string
+    transcriptPath?: string
+    agentType?: 'claude' | 'codex'
+    sessionId?: string
+    connectionId?: string
+  }[]
 }

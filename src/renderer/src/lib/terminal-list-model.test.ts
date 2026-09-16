@@ -65,6 +65,7 @@ function agentEntry(
 
 function input(overrides: Partial<TerminalListInput>): TerminalListInput {
   return {
+    includePlainTerminals: true,
     tabs: [],
     layoutsByTabId: {},
     paneTitlesByTabId: {},
@@ -373,5 +374,44 @@ describe('orderTerminalTabsForStrip', () => {
 
     // Why: dropping it would hide an unread terminal from the list entirely.
     expect(ordered.map((entry) => entry.id)).toEqual(['term-a', 'term-orphan'])
+  })
+})
+
+describe('agent-only terminal list', () => {
+  it('hides plain and exited shells, retaining idle agents and original pane numbers', () => {
+    const idle = { ...agentEntry(makePaneKey('tab-1', LEAF_B), 'done'), agentType: 'codex' }
+    const exited = { ...agentEntry(makePaneKey('tab-1', LEAF_C), 'done'), agentType: 'claude' }
+    const entries = buildTerminalListEntries(
+      input({
+        includePlainTerminals: false,
+        tabs: [tab('tab-1', 'Sibling title')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A, LEAF_B, LEAF_C]) },
+        agentStatusByPaneKey: { [idle.paneKey]: idle, [exited.paneKey]: exited },
+        foregroundByPaneKey: { [exited.paneKey]: { agent: null, shellForeground: true } },
+        unreadTerminalPanes: { [makePaneKey('tab-1', LEAF_A)]: true }
+      })
+    )
+    expect(entries.map((row) => row.position)).toEqual(['1.2'])
+  })
+
+  it('recognizes a manually launched agent without hooks and retains remote idle sessions', () => {
+    const remote = {
+      ...agentEntry(makePaneKey('tab-1', LEAF_B), 'done'),
+      agentType: 'codex',
+      connectionId: 'ssh-1'
+    }
+    const entries = buildTerminalListEntries(
+      input({
+        includePlainTerminals: false,
+        tabs: [tab('tab-1', 'Folder workspace')],
+        layoutsByTabId: { 'tab-1': layout([LEAF_A, LEAF_B]) },
+        agentStatusByPaneKey: { [remote.paneKey]: remote },
+        foregroundByPaneKey: {
+          [makePaneKey('tab-1', LEAF_A)]: { agent: 'claude', shellForeground: false },
+          [remote.paneKey]: { agent: null, shellForeground: true }
+        }
+      })
+    )
+    expect(entries.map((row) => row.position)).toEqual(['1.1', '1.2'])
   })
 })

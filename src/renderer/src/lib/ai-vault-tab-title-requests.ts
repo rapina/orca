@@ -15,6 +15,7 @@ export type AiVaultTitleRequest = {
   refresh: boolean
   tabId: string
   worktreeId: string
+  paneKey?: string
 }
 
 type RequestCandidate = AiVaultTitleRequest & { priority: number }
@@ -40,7 +41,8 @@ function registerCandidate(
     refresh: boolean
     tabId?: string
     worktreeId?: string
-  }
+  },
+  perPane: boolean
 ): void {
   if (!isAiVaultTitleAgent(args.agent) || !args.providerSession?.id) {
     return
@@ -52,22 +54,27 @@ function registerCandidate(
     return
   }
   const priority = args.priority + (activePaneKey(state, tabId) === args.paneKey ? 100 : 0)
-  if ((candidates.get(tabId)?.priority ?? -1) >= priority) {
+  const candidateKey = perPane ? args.paneKey : tabId
+  if ((candidates.get(candidateKey)?.priority ?? -1) >= priority) {
     return
   }
   const executionHostId = getExecutionHostIdForWorktree(state, worktreeId)
-  candidates.set(tabId, {
+  candidates.set(candidateKey, {
     agent: args.agent,
     executionHostId,
     providerSession: args.providerSession,
     refresh: args.refresh,
     tabId,
     worktreeId,
-    priority
+    priority,
+    ...(perPane ? { paneKey: args.paneKey } : {})
   })
 }
 
-export function collectAiVaultTitleRequests(state: AppState): AiVaultTitleRequest[] {
+export function collectAiVaultTitleRequests(
+  state: AppState,
+  perPane = false
+): AiVaultTitleRequest[] {
   const tabsById = new Map(
     Object.values(state.tabsByWorktree)
       .flat()
@@ -76,37 +83,55 @@ export function collectAiVaultTitleRequests(state: AppState): AiVaultTitleReques
   const candidates = new Map<string, RequestCandidate>()
 
   for (const entry of Object.values(state.retainedAgentsByPaneKey)) {
-    registerCandidate(state, tabsById, candidates, {
-      agent: entry.agentType,
-      paneKey: entry.entry.paneKey,
-      priority: 10,
-      providerSession: entry.entry.providerSession,
-      refresh: false,
-      tabId: entry.entry.tabId,
-      worktreeId: entry.worktreeId
-    })
+    registerCandidate(
+      state,
+      tabsById,
+      candidates,
+      {
+        agent: entry.agentType,
+        paneKey: entry.entry.paneKey,
+        priority: 10,
+        providerSession: entry.entry.providerSession,
+        refresh: false,
+        tabId: entry.entry.tabId,
+        worktreeId: entry.worktreeId
+      },
+      perPane
+    )
   }
   for (const record of Object.values(state.sleepingAgentSessionsByPaneKey)) {
-    registerCandidate(state, tabsById, candidates, {
-      agent: record.agent,
-      paneKey: record.paneKey,
-      priority: 20,
-      providerSession: record.providerSession,
-      refresh: false,
-      tabId: record.tabId,
-      worktreeId: record.worktreeId
-    })
+    registerCandidate(
+      state,
+      tabsById,
+      candidates,
+      {
+        agent: record.agent,
+        paneKey: record.paneKey,
+        priority: 20,
+        providerSession: record.providerSession,
+        refresh: false,
+        tabId: record.tabId,
+        worktreeId: record.worktreeId
+      },
+      perPane
+    )
   }
   for (const entry of Object.values(state.agentStatusByPaneKey)) {
-    registerCandidate(state, tabsById, candidates, {
-      agent: entry.agentType,
-      paneKey: entry.paneKey,
-      priority: 30,
-      providerSession: entry.providerSession,
-      refresh: true,
-      tabId: entry.tabId,
-      worktreeId: entry.worktreeId
-    })
+    registerCandidate(
+      state,
+      tabsById,
+      candidates,
+      {
+        agent: entry.agentType,
+        paneKey: entry.paneKey,
+        priority: 30,
+        providerSession: entry.providerSession,
+        refresh: true,
+        tabId: entry.tabId,
+        worktreeId: entry.worktreeId
+      },
+      perPane
+    )
   }
 
   return [...candidates.values()].map(({ priority: _priority, ...request }) => request)

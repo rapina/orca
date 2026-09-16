@@ -4,6 +4,7 @@ import type { TuiAgent } from '../../../../shared/tui-agent'
 import { resolveTabStripTerminalName } from '@/lib/terminal-display-name'
 import { uninformativeTerminalTitles } from '../../../../shared/terminal-context'
 import { useAppStore } from '../../store'
+import { usePaneSessionTitles } from '@/lib/pane-session-titles'
 
 /**
  * The label a terminal tab shows in the strip.
@@ -21,6 +22,7 @@ export function useTabDisplayTitle(
   showUnreadActivity: boolean
 ): string {
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
+  const sessionTitlesByPaneKey = usePaneSessionTitles((s) => s.titles)
   // Why not memoised: this hook is called outside a React render in places, and
   // the set is one string — the selector below returns a primitive either way.
   const uninformativeTitles = uninformativeTerminalTitles(activeWorktreeId)
@@ -32,6 +34,7 @@ export function useTabDisplayTitle(
         paneTitlesByLeafId: s.runtimePaneTitlesByLeafId?.[tab.id],
         agentStatusByPaneKey: s.agentStatusByPaneKey,
         tabTitle: tab.title,
+        sessionTitlesByPaneKey,
         unreadTerminalPanes: s.unreadTerminalPanes,
         unreadAgentCompletionPanes: s.unreadAgentCompletionPanes,
         uninformativeTitles

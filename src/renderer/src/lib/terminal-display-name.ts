@@ -6,6 +6,7 @@ import { makePaneKey, isTerminalLeafId, parsePaneKey } from '../../../shared/sta
 import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
 import { isExplicitAgentStatusFresh } from './agent-status'
 import { collectUnreadLeafIds, type PaneUnreadMaps } from './terminal-unread'
+import type { PaneSessionTitles } from './pane-session-titles'
 
 export type TerminalNameSources = {
   layout: TerminalLayoutSnapshot | null | undefined
@@ -14,6 +15,7 @@ export type TerminalNameSources = {
   agentStatusByPaneKey: Record<string, AgentStatusEntry> | undefined
   /** Last resort: the tab's own title, which every pane of the tab would share. */
   tabTitle: string
+  sessionTitlesByPaneKey?: PaneSessionTitles
   /** Window titles that name no turn — the workspace's own folder names. Some
    *  agents (Codex) write the directory they run in and nothing else. */
   uninformativeTitles?: ReadonlySet<string> | undefined
@@ -62,6 +64,28 @@ export function resolveTerminalName(
   if (paneTitle) {
     return paneTitle
   }
+  const status = isTerminalLeafId(leafId)
+    ? sources.agentStatusByPaneKey?.[makePaneKey(tabId, leafId)]
+    : undefined
+  // Codex hook titles can be copied from the focused sibling's tab label.
+  if (status?.agentType === 'codex') {
+    const sessionTitle = sources.sessionTitlesByPaneKey?.[makePaneKey(tabId, leafId)]
+    if (sessionTitle?.agent === 'codex' && sessionTitle.sessionId === status.providerSession?.id) {
+      if (sessionTitle.title.trim()) {
+        return sessionTitle.title.trim()
+      }
+    }
+    const promptTitle = status.prompt ? deriveGeneratedTabTitle(status.prompt) : null
+    if (promptTitle) {
+      return promptTitle
+    }
+    const ownTitle = sources.paneTitlesByLeafId?.[leafId]
+    if (ownTitle?.trim()) {
+      return stripLeadingAgentTitleDecoration(ownTitle.trim()).trim()
+    }
+    const id = status.providerSession?.id
+    return id ? `Codex · ${id.slice(0, 8)}` : 'Codex'
+  }
   const fromLiveTitle = nameFromWindowTitle(
     sources.paneTitlesByLeafId?.[leafId],
     sources.uninformativeTitles
@@ -69,9 +93,6 @@ export function resolveTerminalName(
   if (fromLiveTitle) {
     return fromLiveTitle
   }
-  const status = isTerminalLeafId(leafId)
-    ? sources.agentStatusByPaneKey?.[makePaneKey(tabId, leafId)]
-    : undefined
   const fromAgentTitle = nameFromWindowTitle(status?.terminalTitle, sources.uninformativeTitles)
   if (fromAgentTitle) {
     return fromAgentTitle
@@ -135,14 +156,7 @@ export function resolveWorkingTerminalName(
   return leafId ? resolveTerminalName(sources, tabId, leafId) : null
 }
 
-/**
- * Name the tab strip shows for a terminal tab, or null to keep the tab's own title.
- *
- * Why this order: the label answers "which terminal does this tab want me for" —
- * a waiting (unread) terminal outranks a running one, and the caller passes
- * `preferUnread: false` while the live status dot has taken the icon, so the
- * label never names a terminal the icon is not talking about.
- */
+/** Unread/working panes own the label; idle tabs follow their active terminal. */
 export function resolveTabStripTerminalName(
   sources: TerminalNameSources & PaneUnreadMaps,
   tabId: string,
@@ -155,5 +169,13 @@ export function resolveTabStripTerminalName(
       return unread
     }
   }
-  return resolveWorkingTerminalName(sources, tabId, now)
+  const working = resolveWorkingTerminalName(sources, tabId, now)
+  if (working) {
+    return working
+  }
+  // Idle tabs must not resurrect a stored title from a previous session.
+  const activeLeafId = sources.layout?.activeLeafId
+  return activeLeafId
+    ? resolveTerminalName({ ...sources, tabTitle: '' }, tabId, activeLeafId) || null
+    : null
 }
